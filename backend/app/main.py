@@ -1,7 +1,9 @@
 """FastAPI app implementing the TTB label verification contract.
 
-In MOCK mode the endpoints return the same three demo scenarios the frontend
-uses, so wiring is end-to-end real without an inference key.
+Pipeline per request:
+  1. LabelExtractor reads the image -> ExtractedLabel (raw observations only).
+  2. The deterministic rules engine consumes ExtractedLabel + ApplicationData
+     and produces the public VerificationResult with citations.
 """
 
 from __future__ import annotations
@@ -16,8 +18,10 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .mock_data import pick_scenario, thumb_for
+from .extractors import InferenceError, get_extractor
+from .mock_data import thumb_for
 from .models import ApplicationData, BatchItemResult, VerificationResult, group_for
+from .rules import verify as run_rules
 
 logger = logging.getLogger("ttb")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -49,15 +53,14 @@ def _parse_application_data(raw: str) -> ApplicationData:
         raise HTTPException(status_code=422, detail=f"applicationData failed validation: {e}")
 
 
-def _scenario_key_for(app_data: ApplicationData | None) -> str:
-    if app_data is None:
-        return "A"
-    brand = (app_data.brandName or "").upper()
-    if "STONE" in brand:
-        return "B"
-    if "NORTHWIND" in brand:
-        return "C"
-    return "A"
+async def _run_pipeline(image_bytes: bytes, app_data: ApplicationData) -> VerificationResult:
+    """The single-label pipeline: extractor -> rules engine -> VerificationResult."""
+    extractor = get_extractor(brand_hint=app_data.brandName)
+    try:
+        extracted = await extractor.extract(image_bytes, app_data.beverageType)
+    except InferenceError as e:
+        raise HTTPException(status_code=502, detail=f"inference failed: {e}")
+    return run_rules(extracted, app_data)
 
 
 @app.post("/api/verify", response_model=VerificationResult)
@@ -68,17 +71,14 @@ async def verify(
     """Verify a single label. Returns the FULL VerificationResult as one JSON
     response (not streamed) — matches the real path in src/api/client.ts."""
     app_data = _parse_application_data(applicationData)
-    # Drain the upload so a future inference adapter can use the bytes; for the
-    # mock we just acknowledge it and don't persist anything.
-    _ = await image.read()
+    image_bytes = await image.read()
     started = time.perf_counter()
-    if settings.inference_mode == "mock":
-        result = pick_scenario(app_data)
-    else:
-        # cloud / onprem adapters come online in Step 2.
-        raise HTTPException(status_code=501, detail=f"INFERENCE_MODE={settings.inference_mode} not yet implemented")
+    result = await _run_pipeline(image_bytes, app_data)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
-    logger.info("verify ok brand=%s beverage=%s ms=%d", app_data.brandName, app_data.beverageType, elapsed_ms)
+    logger.info(
+        "verify brand=%s beverage=%s group=%s ms=%d",
+        app_data.brandName, app_data.beverageType, group_for(result), elapsed_ms,
+    )
     return result
 
 
@@ -91,30 +91,31 @@ async def verify_batch(
     if not images:
         raise HTTPException(status_code=400, detail="no images provided")
     shared = _parse_application_data(applicationData) if applicationData else None
-
-    keys = ["A", "B", "C"]
     out: list[BatchItemResult] = []
+    # Rotate through saved scenarios when caller doesn't pin a single application,
+    # mirroring the frontend's verifyBatch mock behavior so the dashboard sees a mix.
+    from .mock_data import SAVED_APPLICATIONS
     for idx, img in enumerate(images):
-        _ = await img.read()
-        # Rotate through scenarios so the demo dashboard sees all three groups,
-        # matching the frontend's verifyBatch mock behavior.
-        key = keys[idx % len(keys)] if shared is None else _scenario_key_for(shared)
-        scenario = pick_scenario(_app_for_key(key)) if shared is None else pick_scenario(shared)
+        image_bytes = await img.read()
+        app_data = shared if shared is not None else SAVED_APPLICATIONS[idx % len(SAVED_APPLICATIONS)]
+        scenario_key = _scenario_key(app_data)
+        result = await _run_pipeline(image_bytes, app_data)
         item = BatchItemResult(
             id=f"b-{int(time.time() * 1000)}-{idx}-{uuid.uuid4().hex[:6]}",
             fileName=img.filename or f"label-{idx + 1}.jpg",
-            thumbnailUrl=thumb_for(key),
-            result=scenario,
-            group=group_for(scenario),
+            thumbnailUrl=thumb_for(scenario_key),
+            result=result,
+            group=group_for(result),
         )
         out.append(item)
-    logger.info("verify-batch ok n=%d", len(images))
+    logger.info("verify-batch n=%d", len(images))
     return out
 
 
-def _app_for_key(key: str) -> ApplicationData:
-    """Helper so the batch endpoint can synthesize an application when none
-    was supplied — pick_scenario keys off brandName."""
-    from .mock_data import SAVED_APPLICATIONS
-    idx = {"A": 0, "B": 1, "C": 2}.get(key, 0)
-    return SAVED_APPLICATIONS[idx]
+def _scenario_key(app_data: ApplicationData) -> str:
+    brand = (app_data.brandName or "").upper()
+    if "STONE" in brand:
+        return "B"
+    if "NORTHWIND" in brand:
+        return "C"
+    return "A"
