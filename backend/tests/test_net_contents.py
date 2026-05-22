@@ -15,6 +15,11 @@ from app.rules.net_contents import parse_net_contents_to_ml, required_warning_mm
         ("12 FL OZ", pytest.approx(354.882, rel=1e-3)),
         ("12 FL. OZ.", pytest.approx(354.882, rel=1e-3)),
         ("8 oz", pytest.approx(236.588, rel=1e-3)),
+        ("2.5 pints", pytest.approx(1182.94, rel=1e-3)),
+        ("5 gallons", pytest.approx(18927.05, rel=1e-3)),
+        # Multi-unit displays: take the first value
+        ("1 PINT (16 FL OZ)", pytest.approx(473.176, rel=1e-3)),
+        ("12 L 40.5 FL OZ 2.53 PINT", pytest.approx(12000.0, rel=1e-3)),
     ],
 )
 def test_parse_known_units(text, expected_ml):

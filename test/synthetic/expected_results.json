@@ -1,0 +1,94 @@
+{
+  "_comment": "Expected verdicts for the synthetic fixtures. The harness (run_eval.py --synthetic) asserts the backend's output against these. Field keys are matched case-insensitively as substrings of the backend's fieldName (e.g. 'brand' matches 'Brand name'). Omit a field key to skip checking it.",
+  "cases": [
+    {
+      "image": "label_1_old_tom_spirits.png",
+      "applicationData": { "brandName": "OLD TOM DISTILLERY", "classType": "Kentucky Straight Bourbon Whiskey", "alcoholContent": "45% Alc./Vol. (90 Proof)", "netContents": "750 mL", "bottlerNameAddress": "Old Tom Distillery, Frankfort, Kentucky", "beverageType": "spirits" },
+      "expected": {
+        "group": "auto-pass",
+        "fields": { "brand": "match", "class": "match", "alcohol": "match", "net": "match", "bottler": "match" },
+        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true, "fontSizeOk": true, "contrastOk": true, "separateAndApart": true }
+      }
+    },
+    {
+      "image": "label_2_stones_throw_wine.png",
+      "applicationData": { "brandName": "STONE'S THROW", "classType": "California Red Table Wine", "alcoholContent": "13.5% Alc./Vol.", "netContents": "750 mL", "bottlerNameAddress": "Stone's Throw Cellars, Sonoma, California", "beverageType": "wine" },
+      "expected": {
+        "group": "needs-review",
+        "fields": { "brand": "likely", "class": "match", "alcohol": "match", "net": "flag", "bottler": "match" },
+        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true }
+      },
+      "notes": "Label prints 'Stone's Throw' (case near-match -> likely) and '700 mL' (vs declared 750 mL -> flag)."
+    },
+    {
+      "image": "label_3_northwind_beer.png",
+      "applicationData": { "brandName": "NORTHWIND BREWING", "classType": "India Pale Ale", "alcoholContent": "6.8% Alc./Vol.", "netContents": "12 FL OZ", "bottlerNameAddress": "Northwind Brewing Co., Bend, Oregon", "beverageType": "beer" },
+      "expected": {
+        "group": "needs-review",
+        "fields": { "brand": "match", "class": "match", "net": "match", "bottler": "match" },
+        "governmentWarning": { "present": true, "verbatimMatch": false, "casingBoldOk": false, "fontSizeOk": false }
+      },
+      "notes": "Fields fine; Government Warning is title-case + paraphrased + sub-minimum font."
+    },
+    {
+      "image": "label_4_cedar_sage_missing_warning.png",
+      "applicationData": { "brandName": "CEDAR & SAGE", "classType": "Distilled Gin", "alcoholContent": "40% Alc./Vol. (80 Proof)", "netContents": "750 mL", "bottlerNameAddress": "Cedar & Sage Spirits, Portland, Oregon", "beverageType": "spirits" },
+      "expected": {
+        "group": "needs-review",
+        "fields": { "brand": "match", "class": "match", "alcohol": "match", "net": "match", "bottler": "match" },
+        "governmentWarning": { "present": false }
+      },
+      "notes": "Mandatory Government Warning is absent."
+    },
+    {
+      "image": "label_5_valley_crest_wine.png",
+      "applicationData": { "brandName": "VALLEY CREST", "classType": "Sonoma County Chardonnay", "alcoholContent": "13.5% Alc./Vol.", "netContents": "750 mL", "bottlerNameAddress": "Valley Crest Winery, Sonoma, California", "beverageType": "wine" },
+      "expected": {
+        "group": "needs-confirm",
+        "fields": { "brand": "match", "class": "match", "alcohol": "match", "net": "match", "bottler": "likely" },
+        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true }
+      },
+      "notes": "Compliant wine with CONTAINS SULFITES. Label bottler 'Sonoma, CA' vs app 'Sonoma, California' -> address abbreviation = likely (needs-confirm). Tests TEST_PLAN A2/E1/D4."
+    },
+    {
+      "image": "label_6_iron_anchor_lager.png",
+      "applicationData": { "brandName": "IRON ANCHOR", "classType": "Premium Lager Beer", "alcoholContent": "", "netContents": "12 FL OZ", "bottlerNameAddress": "Iron Anchor Brewing Co., Milwaukee, Wisconsin", "beverageType": "beer" },
+      "expected": {
+        "group": "auto-pass",
+        "fields": { "brand": "match", "class": "match", "net": "match", "bottler": "match" },
+        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true }
+      },
+      "notes": "Beer with NO ABV on label and none declared. Tests TEST_PLAN A3: the app must NOT flag a missing alcohol statement for malt beverages."
+    },
+    {
+      "image": "label_7_bright_wave_seltzer.png",
+      "applicationData": { "brandName": "BRIGHT WAVE", "classType": "Black Cherry Hard Seltzer", "alcoholContent": "5% Alc./Vol.", "netContents": "12 FL OZ", "bottlerNameAddress": "Bright Wave Beverage Co., Austin, Texas", "beverageType": "malt" },
+      "expected": {
+        "group": "auto-pass",
+        "fields": { "brand": "match", "class": "match", "alcohol": "match", "net": "match", "bottler": "match" },
+        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true }
+      },
+      "notes": "Flavored malt beverage / hard seltzer — ABV present (mandatory for added-flavor products). Tests TEST_PLAN A4."
+    },
+    {
+      "image": "label_8_glen_arden_scotch.png",
+      "applicationData": { "brandName": "GLEN ARDEN", "classType": "Blended Scotch Whisky", "alcoholContent": "40% Alc./Vol. (80 Proof)", "netContents": "750 mL", "bottlerNameAddress": "Glen Arden Imports, New York, NY", "countryOfOrigin": "Scotland", "beverageType": "spirits" },
+      "expected": {
+        "group": "auto-pass",
+        "fields": { "brand": "match", "class": "match", "alcohol": "match", "net": "match", "bottler": "match" },
+        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true }
+      },
+      "notes": "Imported spirit with 'PRODUCT OF SCOTLAND'. Tests TEST_PLAN B2/E6 (country of origin on imports)."
+    },
+    {
+      "image": "label_9_summit_peak_rye.png",
+      "applicationData": { "brandName": "SUMMIT RIDGE", "classType": "Straight Rye Whiskey", "alcoholContent": "47% Alc./Vol. (94 Proof)", "netContents": "750 mL", "bottlerNameAddress": "Summit Spirits, Denver, Colorado", "beverageType": "spirits" },
+      "expected": {
+        "group": "needs-review",
+        "fields": { "brand": "flag", "class": "match", "alcohol": "match", "net": "match", "bottler": "match" },
+        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true }
+      },
+      "notes": "Application says brand 'SUMMIT RIDGE' but label reads 'SUMMIT PEAK' -> substantive brand mismatch = flag. Tests TEST_PLAN D6."
+    }
+  ]
+}

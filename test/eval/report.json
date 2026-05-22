@@ -1,0 +1,542 @@
+{
+  "mode": "synthetic",
+  "n": 9,
+  "cases_passed": 9,
+  "violation_recall": 1.0,
+  "group_accuracy": 1.0,
+  "field_status_accuracy": 1.0,
+  "warning_flag_accuracy": 1.0,
+  "cases": [
+    {
+      "image": "label_1_old_tom_spirits.png",
+      "checks": [
+        {
+          "group_expected": "auto-pass",
+          "group_got": "auto-pass",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "alcohol",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "verbatimMatch",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "casingBoldOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "fontSizeOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "contrastOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "separateAndApart",
+          "expected": true,
+          "got": true,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": "label_2_stones_throw_wine.png",
+      "checks": [
+        {
+          "group_expected": "needs-review",
+          "group_got": "needs-review",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "likely",
+          "got": "likely",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "alcohol",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "flag",
+          "got": "flag",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "verbatimMatch",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "casingBoldOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": "label_3_northwind_beer.png",
+      "checks": [
+        {
+          "group_expected": "needs-review",
+          "group_got": "needs-review",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "verbatimMatch",
+          "expected": false,
+          "got": false,
+          "ok": true
+        },
+        {
+          "warning": "casingBoldOk",
+          "expected": false,
+          "got": false,
+          "ok": true
+        },
+        {
+          "warning": "fontSizeOk",
+          "expected": false,
+          "got": false,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": "label_4_cedar_sage_missing_warning.png",
+      "checks": [
+        {
+          "group_expected": "needs-review",
+          "group_got": "needs-review",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "alcohol",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": false,
+          "got": false,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": "label_5_valley_crest_wine.png",
+      "checks": [
+        {
+          "group_expected": "needs-confirm",
+          "group_got": "needs-confirm",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "alcohol",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "likely",
+          "got": "likely",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "verbatimMatch",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "casingBoldOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": "label_6_iron_anchor_lager.png",
+      "checks": [
+        {
+          "group_expected": "auto-pass",
+          "group_got": "auto-pass",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "verbatimMatch",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "casingBoldOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": "label_7_bright_wave_seltzer.png",
+      "checks": [
+        {
+          "group_expected": "auto-pass",
+          "group_got": "auto-pass",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "alcohol",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "verbatimMatch",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "casingBoldOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": "label_8_glen_arden_scotch.png",
+      "checks": [
+        {
+          "group_expected": "auto-pass",
+          "group_got": "auto-pass",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "alcohol",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "verbatimMatch",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "casingBoldOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": "label_9_summit_peak_rye.png",
+      "checks": [
+        {
+          "group_expected": "needs-review",
+          "group_got": "needs-review",
+          "ok": true
+        },
+        {
+          "field": "brand",
+          "expected": "flag",
+          "got": "flag",
+          "ok": true
+        },
+        {
+          "field": "class",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "alcohol",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "net",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "field": "bottler",
+          "expected": "match",
+          "got": "match",
+          "ok": true
+        },
+        {
+          "warning": "present",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "verbatimMatch",
+          "expected": true,
+          "got": true,
+          "ok": true
+        },
+        {
+          "warning": "casingBoldOk",
+          "expected": true,
+          "got": true,
+          "ok": true
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

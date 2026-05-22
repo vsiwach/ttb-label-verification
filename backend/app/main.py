@@ -102,9 +102,10 @@ async def _run_pipeline(image_bytes: bytes, app_data: ApplicationData) -> Verifi
     except ImageError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # 2. Extract observations.
-    extractor = get_extractor(brand_hint=app_data.brandName)
+    # 2. Extract observations. Catch InferenceError from both the factory
+    # (e.g. missing API key) and the adapter's extract() call.
     try:
+        extractor = get_extractor(brand_hint=app_data.brandName)
         extracted = await extractor.extract(image_bytes, app_data.beverageType)
     except InferenceError as e:
         raise HTTPException(status_code=502, detail=f"inference failed: {e}")

@@ -28,6 +28,34 @@ def test_exact_verbatim_warning_is_compliant():
     assert a.deviations == []
 
 
+def test_all_caps_body_is_verbatim_compliant():
+    """TTB allows the warning body in any case — only the 'GOVERNMENT WARNING'
+    heading is case-restricted (16.22). An all-caps body printed verbatim must
+    NOT be a wording violation."""
+    all_caps = (
+        "GOVERNMENT WARNING: (1) ACCORDING TO THE SURGEON GENERAL, WOMEN SHOULD NOT "
+        "DRINK ALCOHOLIC BEVERAGES DURING PREGNANCY BECAUSE OF THE RISK OF BIRTH DEFECTS. "
+        "(2) CONSUMPTION OF ALCOHOLIC BEVERAGES IMPAIRS YOUR ABILITY TO DRIVE A CAR OR "
+        "OPERATE MACHINERY, AND MAY CAUSE HEALTH PROBLEMS."
+    )
+    a = analyze_warning(all_caps, present=True, style=_good_style(), container_ml=750.0)
+    assert a.verbatimMatch is True
+    assert not any(d.type == "wording" for d in a.deviations)
+
+
+def test_ocr_noise_punctuation_spacing_does_not_break_verbatim():
+    """Real OCR often inserts spaces around punctuation: 'WARNING :', '( 1 )'.
+    These should normalize away in the wording comparison."""
+    noisy = (
+        "GOVERNMENT WARNING : ( 1 ) According to the Surgeon General , women should not "
+        "drink alcoholic beverages during pregnancy because of the risk of birth defects . "
+        "( 2 ) Consumption of alcoholic beverages impairs your ability to drive a car or "
+        "operate machinery , and may cause health problems ."
+    )
+    a = analyze_warning(noisy, present=True, style=_good_style(), container_ml=750.0)
+    assert a.verbatimMatch is True
+
+
 def test_ocr_noise_does_not_break_verbatim_match():
     """Stray spaces and a line-break hyphenation must NOT trip verbatim."""
     noisy = (

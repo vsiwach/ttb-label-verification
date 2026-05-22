@@ -75,9 +75,8 @@ def test_verify_scenario_A_old_tom(client):
     assert r.status_code == 200
     body = r.json()
     statuses = [f["status"] for f in body["fields"]]
-    # OLD TOM all-match except the state-abbrev 'KY' which is a 'likely'.
-    assert statuses.count("match") == 4
-    assert statuses.count("likely") == 1
+    # OLD TOM is the all-match scenario (5 mandatory fields for spirits).
+    assert statuses.count("match") == 5
     gw = body["governmentWarning"]
     assert gw["verbatimMatch"] is True
     assert gw["casingBoldOk"] is True
@@ -122,8 +121,9 @@ def test_verify_batch_groups(client):
     arr = r.json()
     assert len(arr) == 3
     groups = {item["group"] for item in arr}
-    # Scenario A becomes needs-confirm (state-abbrev = likely), B and C are needs-review.
-    assert groups == {"needs-confirm", "needs-review"}
+    # Scenario A is auto-pass; B (net contents flag) and C (warning violation)
+    # are both needs-review.
+    assert groups == {"auto-pass", "needs-review"}
     for item in arr:
         assert "id" in item and "fileName" in item and "thumbnailUrl" in item
         assert item["thumbnailUrl"].startswith("data:image/svg+xml")

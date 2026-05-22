@@ -194,3 +194,48 @@ This is a federal application, so the bar is **Section 508 / WCAG 2.1–2.2 AA**
 - Keyboard-only operation is fully supported, including the "Confirm next" review flow.
 
 See `/system` in the app for the full design system and `/styleguide` for the component library.
+
+---
+
+## Evaluation harness
+
+End-to-end accuracy harness against real COLA labels lives in `test/eval/`.
+
+### Two gates
+
+```
+make eval-synth   # MUST be 100% — deterministic CI gate (no API key)
+make eval-real    # accuracy report on real COLA labels (cloud mode; not a gate)
+```
+
+`make eval-synth` boots the backend in mock mode, drives the 9 synthetic
+fixtures in `test/synthetic/` through `/api/verify`, and asserts every
+group + per-field + warning verdict is correct. Runs in plain `pytest` too:
+```
+cd backend && pytest tests/test_eval_synthetic.py
+```
+
+`make eval-real` runs the same harness against the COLA Cloud free-sample
+labels in `test/eval/data/`. End-to-end accuracy here is AI-bounded; see
+`test/eval/REPORT.md` for the most recent run, the targets that apply, and
+the engine refinements that landed during eval iteration.
+
+### Building the real dataset
+
+```
+make build-eval-data
+```
+Pulls the COLA Cloud CC0 sample (~1,000 records), filters to images where the
+Government Warning is visible in OCR text, drops keg-size ambiguity, stratifies
+across 23 categories, and emits `test/eval/data/cola_sample.csv` + downloaded
+WebP images. Adds 8 mutation rows (declared net contents / brand / ABV
+mutations on real labels) so the harness can score rejection-detection.
+
+### Running real labels through the system
+
+```
+echo "ANTHROPIC_API_KEY=sk-ant-..." > backend/.env
+echo "INFERENCE_MODE=cloud"        >> backend/.env
+make serve-cloud      # in one terminal
+make eval-real        # in another; report → test/eval/report.md
+```
