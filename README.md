@@ -217,7 +217,7 @@ cd backend && pytest tests/test_eval_synthetic.py
 
 `make eval-real` runs the same harness against the COLA Cloud free-sample
 labels in `test/eval/data/`. End-to-end accuracy here is AI-bounded; see
-`test/eval/REPORT.md` for the most recent run, the targets that apply, and
+`test/eval/ANALYSIS.md` for the most recent run, the targets that apply, and
 the engine refinements that landed during eval iteration.
 
 ### Building the real dataset
@@ -239,3 +239,35 @@ echo "INFERENCE_MODE=cloud"        >> backend/.env
 make serve-cloud      # in one terminal
 make eval-real        # in another; report → test/eval/report.md
 ```
+
+---
+
+## Coverage: what's handled vs flagged for human review
+
+The rules engine has two responsibilities: **decide** what it has high
+confidence about (with an auditable citation), and **route the rest to
+human review** with an explicit reason. Nothing is silently auto-passed.
+
+See **[docs/COVERAGE.md](docs/COVERAGE.md)** for the complete matrix:
+- A. Field matching — every rule that can produce `match` / `likely` / `flag`
+- B. Mandatory fields per beverage type (with 27 CFR citations)
+- C. Government Warning checks (16.21 verbatim + 16.22 format)
+- D. Cases explicitly out of prototype scope
+- E. Image-quality routing
+- F. Inference layer — what the engine trusts vs verifies
+- G. Test surface — where the 100% guarantee lives
+
+### Quick summary
+
+**Deterministic 100% gates (rules engine, no AI):**
+- 62 unit tests covering every field-matching and warning rule
+- 9 synthetic-fixture cases run through the live FastAPI in mock mode
+- Both run in plain `pytest` and in CI
+
+**Conservative-by-design behaviour on real labels:**
+- Low-confidence extractions are downgraded — a confident-but-wrong AI
+  read can never auto-pass
+- Multi-image realities (warning on a back panel, ABV on a front panel)
+  route missing fields to "needs-confirm" with a clear note, not "flag"
+- Unmeasurable font size routes to "please confirm manually" with the
+  16.22 threshold cited

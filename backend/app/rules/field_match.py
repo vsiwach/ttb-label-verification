@@ -109,11 +109,19 @@ def classify_field(declared: str, extracted: str) -> FieldVerdict:
 
     sim = _similarity(nd, ne)
 
-    # Substring containment catches the common 'Kentucky' vs 'KY' state-abbrev
-    # case as a likely (one side contains the other after normalization).
-    contains = nd in ne or ne in nd
+    # Substring containment catches state-abbreviation / "Kentucky" vs "KY"
+    # cases as a likely. We require the contained string to be a meaningful
+    # fraction of the container (60% by length) so a 5-char declared brand
+    # doesn't "match" a 30-char extracted line that merely includes it as a
+    # word — that's a substantive content difference, not a near-match.
+    contains_meaningful = False
+    if nd and ne:
+        if nd in ne:
+            contains_meaningful = len(nd) >= 0.6 * len(ne)
+        elif ne in nd:
+            contains_meaningful = len(ne) >= 0.6 * len(nd)
 
-    if contains or sim >= LIKELY_SIMILARITY_THRESHOLD:
+    if contains_meaningful or sim >= LIKELY_SIMILARITY_THRESHOLD:
         note = _likely_reason(declared, extracted, nd, ne)
         return FieldVerdict(status="likely", normalized_declared=nd, normalized_extracted=ne, similarity=sim, note=note)
 

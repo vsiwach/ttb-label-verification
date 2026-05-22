@@ -46,6 +46,25 @@ def test_punctuation_only_is_likely_or_match():
     assert v.status in ("match", "likely")
 
 
+def test_short_brand_inside_long_unrelated_extracted_is_flag():
+    """Containment is only 'likely' when the contained string is most of the
+    longer string. A 5-char brand inside a 30-char unrelated extraction is a
+    substantive content difference, not a near-match."""
+    v = classify_field("Brand", "Brand WRONG-MATCH AND MORE STUFF")
+    assert v.status == "flag", f"got {v.status}, sim={v.similarity}"
+
+
+def test_state_abbreviation_still_likely_in_context():
+    """Length-ratio tightening must not kill the state-abbrev case when there's
+    enough surrounding address content for the similarity score to clear the
+    threshold."""
+    v = classify_field(
+        "Old Tom Distillery, Frankfort, Kentucky",
+        "Old Tom Distillery, Frankfort, KY",
+    )
+    assert v.status == "likely"
+
+
 def test_normalize_idempotent():
     assert normalize_for_compare("  Hello  WORLD  ") == "hello world"
     assert normalize_for_compare(None) == ""  # type: ignore[arg-type]

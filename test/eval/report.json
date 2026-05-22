@@ -1,542 +1,1341 @@
 {
-  "mode": "synthetic",
-  "n": 9,
-  "cases_passed": 9,
-  "violation_recall": 1.0,
-  "group_accuracy": 1.0,
-  "field_status_accuracy": 1.0,
-  "warning_flag_accuracy": 1.0,
-  "cases": [
+  "mode": "real",
+  "n": 90,
+  "approved_n": 60,
+  "field_extraction_accuracy": 0.6983,
+  "field_total": 358,
+  "field_correct": 250,
+  "verdict_accuracy": 0.2667,
+  "auto_pass_rate_approved": 0.05,
+  "warning_false_flag_rate": 0.2667,
+  "latency_p95": 10.474,
+  "latency_mean": 8.434,
+  "misses": [
     {
-      "image": "label_1_old_tom_spirits.png",
-      "checks": [
-        {
-          "group_expected": "auto-pass",
-          "group_got": "auto-pass",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "alcohol",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "verbatimMatch",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "casingBoldOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "fontSizeOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "contrastOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "separateAndApart",
-          "expected": true,
-          "got": true,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25329001000751_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "malt_flavored"
     },
     {
-      "image": "label_2_stones_throw_wine.png",
-      "checks": [
-        {
-          "group_expected": "needs-review",
-          "group_got": "needs-review",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "likely",
-          "got": "likely",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "alcohol",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "flag",
-          "got": "flag",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "verbatimMatch",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "casingBoldOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25339001000092_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "malt_flavored"
     },
     {
-      "image": "label_3_northwind_beer.png",
-      "checks": [
-        {
-          "group_expected": "needs-review",
-          "group_got": "needs-review",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "verbatimMatch",
-          "expected": false,
-          "got": false,
-          "ok": true
-        },
-        {
-          "warning": "casingBoldOk",
-          "expected": false,
-          "got": false,
-          "ok": true
-        },
-        {
-          "warning": "fontSizeOk",
-          "expected": false,
-          "got": false,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25358001000049_1.webp",
+      "field": "Alcohol content",
+      "expected": "40% Alc./Vol.",
+      "got": "R.E. 232-CA",
+      "status": "flag",
+      "product": null
     },
     {
-      "image": "label_4_cedar_sage_missing_warning.png",
-      "checks": [
-        {
-          "group_expected": "needs-review",
-          "group_got": "needs-review",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "alcohol",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": false,
-          "got": false,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25358001000049_1.webp",
+      "field": "Net contents",
+      "expected": "200 mL",
+      "got": "IA 5\u00a2, ME-VT 15\u00a2 CA CRV",
+      "status": "flag",
+      "product": null
     },
     {
-      "image": "label_5_valley_crest_wine.png",
-      "checks": [
-        {
-          "group_expected": "needs-confirm",
-          "group_got": "needs-confirm",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "alcohol",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "likely",
-          "got": "likely",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "verbatimMatch",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "casingBoldOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25357001000625_1.webp",
+      "field": "Brand name",
+      "expected": "Pichon Comtesse",
+      "got": "",
+      "status": "likely",
+      "product": "Reserve"
     },
     {
-      "image": "label_6_iron_anchor_lager.png",
-      "checks": [
-        {
-          "group_expected": "auto-pass",
-          "group_got": "auto-pass",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "verbatimMatch",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "casingBoldOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25357001000625_1.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "wine_red_import"
     },
     {
-      "image": "label_7_bright_wave_seltzer.png",
-      "checks": [
-        {
-          "group_expected": "auto-pass",
-          "group_got": "auto-pass",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "alcohol",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "verbatimMatch",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "casingBoldOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25329001000754_0.webp",
+      "field": "Class & type",
+      "expected": "table flavored wine",
+      "got": "",
+      "status": "likely",
+      "product": null
     },
     {
-      "image": "label_8_glen_arden_scotch.png",
-      "checks": [
-        {
-          "group_expected": "auto-pass",
-          "group_got": "auto-pass",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "alcohol",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "verbatimMatch",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "casingBoldOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25329001000754_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "malt_flavored"
     },
     {
-      "image": "label_9_summit_peak_rye.png",
-      "checks": [
-        {
-          "group_expected": "needs-review",
-          "group_got": "needs-review",
-          "ok": true
-        },
-        {
-          "field": "brand",
-          "expected": "flag",
-          "got": "flag",
-          "ok": true
-        },
-        {
-          "field": "class",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "alcohol",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "net",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "field": "bottler",
-          "expected": "match",
-          "got": "match",
-          "ok": true
-        },
-        {
-          "warning": "present",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "verbatimMatch",
-          "expected": true,
-          "got": true,
-          "ok": true
-        },
-        {
-          "warning": "casingBoldOk",
-          "expected": true,
-          "got": true,
-          "ok": true
-        }
-      ],
-      "passed": true
+      "image": "25351001000734_0.webp",
+      "field": "Brand name",
+      "expected": "Social Hour Cocktails",
+      "got": "Social Hour BATCHED COCKTAILS",
+      "status": "flag",
+      "product": "Lili'uokalani Mai Tai"
+    },
+    {
+      "image": "25339001000022_0.webp",
+      "field": "Country of origin",
+      "expected": "south korea",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000157_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "auto-pass",
+      "bucket": "wine_white"
+    },
+    {
+      "image": "25360001000069_2.webp",
+      "field": "Alcohol content",
+      "expected": "40% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25360001000069_2.webp",
+      "field": "Net contents",
+      "expected": "1 L",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25360001000069_2.webp",
+      "field": "Country of origin",
+      "expected": "mexico",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000298_1.webp",
+      "field": "Class & type",
+      "expected": "sparkling wine/champagne",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000298_1.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "wine_sparkling"
+    },
+    {
+      "image": "25356001000393_0.webp",
+      "field": "Brand name",
+      "expected": "Navarre Coulee Vineyards",
+      "got": "NAVARRE COULLE VINEYARDS",
+      "status": "likely",
+      "product": "Semillon"
+    },
+    {
+      "image": "25342001000520_1.webp",
+      "field": "Brand name",
+      "expected": "Cremisan",
+      "got": "AL - JAZER",
+      "status": "flag",
+      "product": "Al Jazer"
+    },
+    {
+      "image": "25342001000556_1.webp",
+      "field": "Brand name",
+      "expected": "Cremisan",
+      "got": "AL - JAZER",
+      "status": "flag",
+      "product": "Al Jazer"
+    },
+    {
+      "image": "25358001000051_0.webp",
+      "field": "Class & type",
+      "expected": "agave spirits",
+      "got": "100%",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25356001000027_0.webp",
+      "field": "Brand name",
+      "expected": "La Canosa Soc. Agr. Srl",
+      "got": "LACANOSA",
+      "status": "flag",
+      "product": "Nummaria"
+    },
+    {
+      "image": "25356001000027_0.webp",
+      "field": "Alcohol content",
+      "expected": "13.5% Alc./Vol.",
+      "got": "14.0% BY VOL.",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25356001000027_0.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "750mLe",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25357001000169_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "auto-pass",
+      "bucket": "wine_white"
+    },
+    {
+      "image": "25357001000142_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "auto-pass",
+      "bucket": "wine_white"
+    },
+    {
+      "image": "25355001000120_0.webp",
+      "field": "Net contents",
+      "expected": "0.8 pints",
+      "got": "355 ML 12 Fluid Ounces 0.75 Pint",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25355001000120_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_generic"
+    },
+    {
+      "image": "25355001000111_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_generic"
+    },
+    {
+      "image": "25353001000206_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "beer_generic"
+    },
+    {
+      "image": "25355001000121_0.webp",
+      "field": "Country of origin",
+      "expected": "mexico",
+      "got": "PRODUCT OF EL SALVADOR",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25355001000121_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_generic"
+    },
+    {
+      "image": "25352001000380_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "beer_ipa_ale"
+    },
+    {
+      "image": "25353001000369_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_ipa_ale"
+    },
+    {
+      "image": "25355001000090_0.webp",
+      "field": "Net contents",
+      "expected": "0.7 pints",
+      "got": "350 ML",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25355001000090_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_lager"
+    },
+    {
+      "image": "25353001000194_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "beer_lager"
+    },
+    {
+      "image": "25355001000081_0.webp",
+      "field": "Net contents",
+      "expected": "0.8 pints",
+      "got": "350 ML 12 Fluid Ounces 0.75 Pint",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25355001000081_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_lager"
+    },
+    {
+      "image": "25352001000441_0.webp",
+      "field": "Net contents",
+      "expected": "403 mL",
+      "got": "12 FL. OZ.",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25352001000441_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_stout"
+    },
+    {
+      "image": "25353001000809_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_stout"
+    },
+    {
+      "image": "25353001000533_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "beer_stout"
+    },
+    {
+      "image": "25330001000656_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "malt_flavored"
+    },
+    {
+      "image": "25352001000567_0.webp",
+      "field": "Brand name",
+      "expected": "Upside Down",
+      "got": "BOTTLE LOGIC BREWING & CAMPY CREATURES",
+      "status": "flag",
+      "product": "Tart Ale"
+    },
+    {
+      "image": "25352001000567_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "malt_flavored"
+    },
+    {
+      "image": "25357001000507_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "malt_flavored"
+    },
+    {
+      "image": "25351001001005_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "malt_flavored"
+    },
+    {
+      "image": "25361001000046_1.webp",
+      "field": "Brand name",
+      "expected": "Assemblage Bourbon",
+      "got": "IRONROOT",
+      "status": "flag",
+      "product": "Assemblage A"
+    },
+    {
+      "image": "25361001000046_1.webp",
+      "field": "Alcohol content",
+      "expected": "48% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25361001000046_1.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25361001000046_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_bourbon"
+    },
+    {
+      "image": "25363001000101_0.webp",
+      "field": "Class & type",
+      "expected": "whisky specialties",
+      "got": "KENTUCKY STRAIGHT BOURBON WHISKEY FINISHED WITH TOASTED MAPLE WOOD",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25363001000101_0.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25363001000101_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_bourbon"
+    },
+    {
+      "image": "25323001000860_3.webp",
+      "field": "Class & type",
+      "expected": "whisky specialties",
+      "got": "BOURBON",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25323001000860_3.webp",
+      "field": "Alcohol content",
+      "expected": "50% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25323001000860_3.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25323001000860_3.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_bourbon"
+    },
+    {
+      "image": "25363001000020_0.webp",
+      "field": "Class & type",
+      "expected": "straight bourbon whisky",
+      "got": "WHISKEY",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25363001000020_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_bourbon"
+    },
+    {
+      "image": "25359001000027_1.webp",
+      "field": "Alcohol content",
+      "expected": "40% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25359001000027_1.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25359001000027_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_gin"
+    },
+    {
+      "image": "25345001000217_0.webp",
+      "field": "Brand name",
+      "expected": "Matchbook Distilling Co",
+      "got": "MATCHBROOK",
+      "status": "flag",
+      "product": "Cinnamon"
+    },
+    {
+      "image": "25345001000217_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_gin"
+    },
+    {
+      "image": "25347001000067_3.webp",
+      "field": "Alcohol content",
+      "expected": "45% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25347001000067_3.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25347001000067_3.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_gin"
+    },
+    {
+      "image": "25359001000032_1.webp",
+      "field": "Brand name",
+      "expected": "James Bay Distillers",
+      "got": "",
+      "status": "likely",
+      "product": "Pineapple Flavored Gin"
+    },
+    {
+      "image": "25359001000032_1.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25359001000032_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_gin"
+    },
+    {
+      "image": "25357001000185_1.webp",
+      "field": "Class & type",
+      "expected": "other (herbs & seeds)",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000185_1.webp",
+      "field": "Alcohol content",
+      "expected": "23% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000185_1.webp",
+      "field": "Net contents",
+      "expected": "2 FL OZ",
+      "got": "VTIME.BS - IA.SK",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25357001000185_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_liqueur"
+    },
+    {
+      "image": "25363001000158_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_liqueur"
+    },
+    {
+      "image": "25357001000363_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_liqueur"
+    },
+    {
+      "image": "25344001000120_0.webp",
+      "field": "Brand name",
+      "expected": "Vetiver Liqueur",
+      "got": "ATHERAS SPIRITS",
+      "status": "flag",
+      "product": "Vetiver"
+    },
+    {
+      "image": "25344001000120_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_liqueur"
+    },
+    {
+      "image": "25330001000119_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_other"
+    },
+    {
+      "image": "25360001000152_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_other"
+    },
+    {
+      "image": "25293001000376_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_other"
+    },
+    {
+      "image": "25358001000120_1.webp",
+      "field": "Brand name",
+      "expected": "A.E.Dor",
+      "got": "A.E. DOR",
+      "status": "likely",
+      "product": "Xo"
+    },
+    {
+      "image": "25358001000120_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_other"
+    },
+    {
+      "image": "25338001000661_0.webp",
+      "field": "Net contents",
+      "expected": "375 mL",
+      "got": "750ml",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25338001000661_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_rum"
+    },
+    {
+      "image": "25357001000468_1.webp",
+      "field": "Class & type",
+      "expected": "other rum gold fb",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000468_1.webp",
+      "field": "Alcohol content",
+      "expected": "57% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000468_1.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000468_1.webp",
+      "field": "Country of origin",
+      "expected": "barbados",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000468_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_rum"
+    },
+    {
+      "image": "25363001000016_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_rum"
+    },
+    {
+      "image": "25335001000909_1.webp",
+      "field": "Alcohol content",
+      "expected": "40% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25335001000909_1.webp",
+      "field": "Net contents",
+      "expected": "375 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25335001000909_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_rum"
+    },
+    {
+      "image": "25357001000097_1.webp",
+      "field": "Country of origin",
+      "expected": "scotland",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000097_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_scotch_import"
+    },
+    {
+      "image": "25319001000056_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_scotch_import"
+    },
+    {
+      "image": "25357001000092_2.webp",
+      "field": "Brand name",
+      "expected": "Holyrood Distillery",
+      "got": "",
+      "status": "likely",
+      "product": "Noir Premier Cru Yeast"
+    },
+    {
+      "image": "25357001000092_2.webp",
+      "field": "Class & type",
+      "expected": "single malt scotch whisky",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000092_2.webp",
+      "field": "Country of origin",
+      "expected": "scotland",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000092_2.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_scotch_import"
+    },
+    {
+      "image": "25319001000064_1.webp",
+      "field": "Brand name",
+      "expected": "Lagavulin",
+      "got": "",
+      "status": "likely",
+      "product": "Aged 16 Years"
+    },
+    {
+      "image": "25319001000064_1.webp",
+      "field": "Class & type",
+      "expected": "single malt scotch whisky",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25319001000064_1.webp",
+      "field": "Alcohol content",
+      "expected": "43% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25319001000064_1.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25319001000064_1.webp",
+      "field": "Country of origin",
+      "expected": "scotland",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25319001000064_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_scotch_import"
+    },
+    {
+      "image": "25329001000036_0.webp",
+      "field": "Brand name",
+      "expected": "Lanthier Winery Distillery",
+      "got": "Lanthier Distillery",
+      "status": "flag",
+      "product": "Grape Monstershine"
+    },
+    {
+      "image": "25329001000036_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_tequila"
+    },
+    {
+      "image": "25357001000679_1.webp",
+      "field": "Class & type",
+      "expected": "tequila fb",
+      "got": "BLANCO",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25357001000679_1.webp",
+      "field": "Alcohol content",
+      "expected": "50% Alc./Vol.",
+      "got": "2X Cu Proof, Stainless Steel 1248 & Brick Ovens",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25357001000679_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_tequila_import"
+    },
+    {
+      "image": "25335001001048_2.webp",
+      "field": "Brand name",
+      "expected": "Casa Huitzila Blanco",
+      "got": "",
+      "status": "likely",
+      "product": "Maestro Blanco"
+    },
+    {
+      "image": "25335001001048_2.webp",
+      "field": "Class & type",
+      "expected": "mezcal fb",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25335001001048_2.webp",
+      "field": "Alcohol content",
+      "expected": "43% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25335001001048_2.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25335001001048_2.webp",
+      "field": "Country of origin",
+      "expected": "mexico",
+      "got": "PRODUCED IN ZACATECAS",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25335001001048_2.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_tequila_import"
+    },
+    {
+      "image": "25350001000256_3.webp",
+      "field": "Class & type",
+      "expected": "tequila fb",
+      "got": "REPOSADO",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25350001000256_3.webp",
+      "field": "Alcohol content",
+      "expected": "40% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25350001000256_3.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_tequila_import"
+    },
+    {
+      "image": "25363001000263_2.webp",
+      "field": "Alcohol content",
+      "expected": "40% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25363001000263_2.webp",
+      "field": "Net contents",
+      "expected": "50 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25363001000263_2.webp",
+      "field": "Country of origin",
+      "expected": "mexico",
+      "got": "ELABORADO Y ENVASADO DE ORIGEN EN: LA QUE MANDA S.A DE C.V. CAMINO DE LA SAN DIONISIO KM 0.5 SAN DIONISIO OCOTEPEC, OAXACA C.P. 71240 R.F.C. QMA211203RY8",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25363001000263_2.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_tequila_import"
+    },
+    {
+      "image": "25360001000147_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_vodka"
+    },
+    {
+      "image": "25357001000485_0.webp",
+      "field": "Net contents",
+      "expected": "12 FL OZ",
+      "got": "475 mL",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25357001000485_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_vodka"
+    },
+    {
+      "image": "25357001000418_0.webp",
+      "field": "Class & type",
+      "expected": "vodka specialties",
+      "got": "Grain neutral spirits with Timut Peppercorn",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25357001000418_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_vodka"
+    },
+    {
+      "image": "25357001000395_0.webp",
+      "field": "Class & type",
+      "expected": "vodka specialties",
+      "got": "Grain neutral spirits with Apricot",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25357001000395_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_vodka"
+    },
+    {
+      "image": "25357001000032_2.webp",
+      "field": "Brand name",
+      "expected": "Osprey Point Whiskey",
+      "got": "HOMOSASSA DISTILLERY CO.",
+      "status": "flag",
+      "product": "Osprey Point Whiskey"
+    },
+    {
+      "image": "25357001000032_2.webp",
+      "field": "Class & type",
+      "expected": "whisky",
+      "got": "WHISKEY",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25357001000032_2.webp",
+      "field": "Alcohol content",
+      "expected": "40% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000032_2.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000032_2.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_whisky_other"
+    },
+    {
+      "image": "25356001000607_1.webp",
+      "field": "Class & type",
+      "expected": "straight whisky blends",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25356001000607_1.webp",
+      "field": "Alcohol content",
+      "expected": "35% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25356001000607_1.webp",
+      "field": "Net contents",
+      "expected": "700 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25356001000607_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_whisky_other"
+    },
+    {
+      "image": "25358001000034_1.webp",
+      "field": "Alcohol content",
+      "expected": "60% Alc./Vol.",
+      "got": "IM.5cl YT.1%",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25358001000034_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "spirits_whisky_other"
+    },
+    {
+      "image": "25345001000504_2.webp",
+      "field": "Brand name",
+      "expected": "J. Rieger & Co.",
+      "got": "",
+      "status": "likely",
+      "product": "Cask Finished Kansas City Whiskey"
+    },
+    {
+      "image": "25345001000504_2.webp",
+      "field": "Class & type",
+      "expected": "whisky",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25345001000504_2.webp",
+      "field": "Alcohol content",
+      "expected": "49% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25345001000504_2.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_whisky_other"
+    },
+    {
+      "image": "25307001000114_1.webp",
+      "field": "Brand name",
+      "expected": "Tropical Club",
+      "got": "HBS DELLI",
+      "status": "flag",
+      "product": "Tropical Club"
+    },
+    {
+      "image": "25307001000114_1.webp",
+      "field": "Class & type",
+      "expected": "dessert flavored wine",
+      "got": "AGAVE WINE WITH NATURAL FLAVORS AND ARTIFICIAL COLORS",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25307001000114_1.webp",
+      "field": "Net contents",
+      "expected": "1 L",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25307001000114_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "wine_fortified"
+    },
+    {
+      "image": "25352001000435_0.webp",
+      "field": "Alcohol content",
+      "expected": "23% Alc./Vol.",
+      "got": "ALC 2% BY VOL",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25352001000435_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "wine_fortified"
+    },
+    {
+      "image": "25357001000005_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "wine_fortified"
+    },
+    {
+      "image": "25347001000112_1.webp",
+      "field": "Class & type",
+      "expected": "dessert /port/sherry/(cooking) wine",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25347001000112_1.webp",
+      "field": "Alcohol content",
+      "expected": "15% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25347001000112_1.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "wine_fortified"
+    },
+    {
+      "image": "25360001000152_0.webp",
+      "field": "Net contents",
+      "expected": "500 mL",
+      "got": "750ml",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25352001000567_0.webp",
+      "field": "Brand name",
+      "expected": "Upside Down",
+      "got": "BOTTLE LOGIC BREWING & CAMPY CREATURES",
+      "status": "flag",
+      "product": "Tart Ale"
+    },
+    {
+      "image": "25352001000567_0.webp",
+      "field": "Net contents",
+      "expected": "100 mL",
+      "got": "1 PINT",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25345001000217_0.webp",
+      "field": "Brand name",
+      "expected": "NONEXISTENT MISMATCH BRAND XYZ",
+      "got": "MATCHBOOK",
+      "status": "flag",
+      "product": "Cinnamon"
+    },
+    {
+      "image": "25323001000860_3.webp",
+      "field": "Class & type",
+      "expected": "whisky specialties",
+      "got": "BOURBON",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25323001000860_3.webp",
+      "field": "Alcohol content",
+      "expected": "99.9% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25323001000860_3.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25338001000661_0.webp",
+      "field": "Alcohol content",
+      "expected": "0.4% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25338001000661_0.webp",
+      "field": "Net contents",
+      "expected": "375 mL",
+      "got": "750ml",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25357001000097_1.webp",
+      "field": "Country of origin",
+      "expected": "Mars",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000097_1.webp",
+      "mutation": "country_origin_mismatch",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "spirits_scotch_import"
+    },
+    {
+      "image": "25363001000101_0.webp",
+      "field": "Class & type",
+      "expected": "infused honey-flavored cocktail wine spirit",
+      "got": "KENTUCKY STRAIGHT BOURBON WHISKEY FINISHED WITH TOASTED MAPLE WOOD",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25363001000101_0.webp",
+      "field": "Net contents",
+      "expected": "750 mL",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25355001000081_0.webp",
+      "field": "Net contents",
+      "expected": "999 mL",
+      "got": "350 ML 12 Fluid Ounces 0.75 Pint",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25357001000395_0.webp",
+      "field": "Class & type",
+      "expected": "vodka specialties",
+      "got": "Grain neutral spirits with Apricot",
+      "status": "match",
+      "product": null
+    },
+    {
+      "image": "25357001000395_0.webp",
+      "field": "Alcohol content",
+      "expected": "99.9% Alc./Vol.",
+      "got": "46% Alcohol by Volume",
+      "status": "flag",
+      "product": null
     }
   ]
 }

@@ -29,12 +29,26 @@ import re as _re
 # COLA against the broader bucket so a label-side specific designation under
 # a known umbrella is a match, not a flag.
 _UMBRELLA_CLASSES = {
-    "beer", "ale", "wine", "table red wine", "table white wine",
-    "table flavored wine", "malt beverages specialities",
-    "malt beverages specialities - flavored", "sparkling wine/champagne",
-    "dessert /port/sherry/(cooking) wine", "rose wine",
-    "honey based table wine", "other specialties & proprietaries",
+    # Beer/malt umbrellas
+    "beer", "ale", "stout", "porter", "lager", "malt beverage",
+    "malt beverages specialities", "malt beverages specialities - flavored",
+    # Wine umbrellas
+    "wine", "table wine", "table red wine", "table white wine", "rose wine",
+    "table flavored wine", "sparkling wine", "sparkling wine/champagne",
+    "dessert /port/sherry/(cooking) wine", "fortified wine",
+    "honey based table wine", "cider",
+    # Spirits umbrellas
+    "distilled spirits", "spirits", "whisky", "whiskey",
+    "whisky specialties", "vodka", "vodka specialties", "gin", "rum",
+    "tequila", "tequila fb", "mezcal", "mezcal fb", "brandy", "liqueur",
+    "other whisky", "other whisky (flavored)", "other specialties & proprietaries",
 }
+
+# A model confidence below this on a 'match' verdict promotes to 'likely' —
+# the agent gets a "please confirm" rather than an unverified pass. Tuned for
+# the cloud extractor which calibrates ~0.95 on confident reads and ~0.4–0.6
+# on guesses.
+LOW_CONFIDENCE_PROMOTE_THRESHOLD = 0.60
 
 
 def _is_umbrella_class(declared: str) -> bool:
@@ -181,14 +195,28 @@ def verify(
                 verdict = classify_field(declared, extracted_value)
         else:
             verdict = classify_field(declared, extracted_value)
+
+        # Conservative routing: a 'match' produced from a low-confidence
+        # extraction is downgraded to 'likely' so the agent confirms. This
+        # protects against the model 'matching' because it confidently read
+        # the wrong tokens (e.g. brand vs product name, deposit code vs ABV).
+        status = verdict.status
+        note = verdict.note
+        if status == "match" and extracted_field.confidence < LOW_CONFIDENCE_PROMOTE_THRESHOLD:
+            status = "likely"
+            note = (
+                f"Low extractor confidence ({extracted_field.confidence:.2f}); please confirm."
+                + (f" — {verdict.note}" if verdict.note else "")
+            )
+
         fields.append(VerificationField(
             fieldName=spec.label_name,
             declaredValue=declared,
             extractedValue=extracted_field.value,  # show what was printed
-            status=verdict.status,
+            status=status,
             confidence=extracted_field.confidence,
             regulationCite=cite,
-            note=verdict.note,
+            note=note,
         ))
 
     # Government Warning analysis (16.21 / 16.22)
