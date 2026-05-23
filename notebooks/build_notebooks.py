@@ -63,23 +63,37 @@ def header_cell(model_name, base_model, library, runtime_advice):
 
 def install_qwen():
     return md("## 0. Install dependencies\n"), code(
-        "# Qwen2.5-VL via Unsloth — Unsloth manages compatible torch / transformers /\n",
-        "# bitsandbytes versions. Pin peft<0.14 (newer peft requires transformers>=4.49\n",
-        "# which conflicts with what Unsloth currently brings in).\n",
+        "# Qwen2.5-VL via Unsloth. Three things pip does NOT auto-resolve correctly\n",
+        "# on Colab's base image, hence the explicit calls below:\n",
+        "#   1. numpy stays at 1.x unless we explicitly upgrade — but peft/datasets\n",
+        "#      wheels are built against numpy 2.x ABI, so we must force 2.x first.\n",
+        "#   2. unsloth_zoo is a sibling package Unsloth needs but doesn't auto-install.\n",
+        "#   3. peft<0.14 to stay compatible with what Unsloth brings in.\n",
         "!pip install --upgrade pip\n",
-        "!pip install --upgrade 'unsloth' 'trl<0.10.0' 'peft<0.14' accelerate 'bitsandbytes>=0.44'\n",
+        "!pip install --upgrade 'numpy>=2.0'  # MUST come before anything that has numpy C-ext\n",
+        "!pip install --upgrade unsloth unsloth_zoo 'trl<0.10.0' 'peft<0.14' accelerate 'bitsandbytes>=0.44'\n",
         "!pip install --upgrade 'datasets>=2.20' pyarrow pillow requests tqdm\n",
+        "\n",
+        "print('\\n⚠️  If this is your first install in this VM, please do:')\n",
+        "print('   Runtime → Restart session   (mandatory; numpy 1.x is cached in memory)')\n",
+        "print('   then Runtime → Run all')\n",
     )
 
 
 def install_kimi():
     return md("## 0. Install dependencies\n"), code(
-        "# Kimi-VL-A3B-Thinking-2506 — model card pins transformers==4.48.2 specifically.\n",
-        "# Pin peft<0.14 because peft 0.14+ requires transformers>=4.49.\n",
-        "# Numpy 2.x is the ABI modern wheels are built against — do NOT pin numpy<2.\n",
+        "# Kimi-VL-A3B-Thinking-2506:\n",
+        "#   - Model card pins transformers==4.48.2.\n",
+        "#   - peft<0.14 because peft 0.14+ requires transformers>=4.49.\n",
+        "#   - numpy MUST be 2.x — peft/datasets wheels are built against numpy 2.x ABI.\n",
         "!pip install --upgrade pip\n",
+        "!pip install --upgrade 'numpy>=2.0'  # MUST come before anything with numpy C-ext\n",
         "!pip install 'transformers==4.48.2' accelerate 'bitsandbytes>=0.44' 'peft<0.14' 'trl<0.10.0' sentencepiece\n",
         "!pip install --upgrade 'datasets>=2.20' pyarrow pillow requests tqdm\n",
+        "\n",
+        "print('\\n⚠️  If this is your first install in this VM, please do:')\n",
+        "print('   Runtime → Restart session   (mandatory; numpy 1.x is cached in memory)')\n",
+        "print('   then Runtime → Run all')\n",
     )
 
 
@@ -97,6 +111,19 @@ def validate_imports_cell(extra_modules=()):
         "and Run all again.\n",
     ), code(
         "import importlib, traceback\n",
+        "\n",
+        "# Pre-check numpy version since ABI issues are the #1 cause of failures.\n",
+        "import numpy\n",
+        "if numpy.__version__.startswith('1.'):\n",
+        "    raise RuntimeError(\n",
+        "        f'numpy is {numpy.__version__} (1.x) but the installed peft/datasets wheels '\n",
+        "        f'are built against numpy 2.x ABI. Fix:\\n'\n",
+        "        '  1. Paste this cell:  !pip install --upgrade \"numpy>=2.0\"\\n'\n",
+        "        '  2. Runtime → Restart session   (mandatory — 1.x is cached in memory)\\n'\n",
+        "        '  3. Runtime → Run all'\n",
+        "    )\n",
+        "print(f'  ✓ numpy          {numpy.__version__}')\n",
+        "\n",
         f"_required = ['torch', 'transformers', 'accelerate', 'peft', 'trl', 'bitsandbytes', 'datasets', 'PIL', 'tqdm'{extra}]\n",
         "_failed = []\n",
         "for mod in _required:\n",
