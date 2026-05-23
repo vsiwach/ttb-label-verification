@@ -10,7 +10,8 @@ PYTEST   := $(VENV)/bin/pytest
 API      ?= http://localhost:8000/api
 PORT     ?= 8000
 
-.PHONY: help install install-sft test eval-synth eval-real eval-replay-qwen \
+.PHONY: help install install-sft test eval-synth eval-real \
+        eval-replay-qwen eval-replay-internvl3 eval-replay-donut eval-compare-all \
         serve-mock serve-cloud serve-max serve-sft-qwen serve-modal \
         modal-deploy modal-upload-adapter \
         build-eval-data clean
@@ -22,7 +23,10 @@ help:
 	@echo "  test            Run the full pytest suite (rules engine + integration + synthetic gate)"
 	@echo "  eval-synth      Boot backend in MOCK mode and run synthetic eval; MUST be 100% (CI gate)"
 	@echo "  eval-real       Run real eval against test/eval/data (requires backend already running)"
-	@echo "  eval-replay-qwen Replay Qwen outputs from ~/Downloads/qwen_outputs.jsonl through the local rules engine"
+	@echo "  eval-replay-qwen     Replay Qwen outputs through the local rules engine"
+	@echo "  eval-replay-internvl3 Replay InternVL3-2B outputs"
+	@echo "  eval-replay-donut    Replay Donut v2 outputs"
+	@echo "  eval-compare-all     Side-by-side table of all model reports vs Claude"
 	@echo "  build-eval-data Build/refresh the stratified COLA Cloud sample (idempotent)"
 	@echo "  serve-mock      Run backend in mock mode (no API key required)"
 	@echo "  serve-cloud     Run backend in cloud mode (reads backend/.env; pay-per-token API)"
@@ -59,12 +63,33 @@ eval-real:
 	    --images test/eval/data/images \
 	    --out test/eval
 
-# Replay Qwen outputs (from the Colab eval cell) through the local rules
-# engine and produce test/eval/qwen_report.json — apples-to-apples vs
-# test/eval/report.json (Claude). Defaults to ~/Downloads/qwen_outputs.jsonl
-# which is where the Colab cell auto-downloads it.
+# Replay model outputs (from a Colab eval notebook) through the local rules
+# engine and produce a test/eval/{label}_report.json — apples-to-apples vs
+# test/eval/report.json (Claude). Each target points at a different JSONL
+# default that matches where the respective eval notebook auto-downloads it.
 eval-replay-qwen:
-	$(PY) test/eval/replay_qwen.py
+	$(PY) test/eval/replay_extractions.py \
+	    --jsonl ~/Downloads/qwen_outputs.jsonl \
+	    --label qwen \
+	    --out test/eval/qwen_report.json
+
+eval-replay-internvl3:
+	$(PY) test/eval/replay_extractions.py \
+	    --jsonl ~/Downloads/internvl3_outputs.jsonl \
+	    --label internvl3 \
+	    --out test/eval/internvl3_report.json
+
+eval-replay-donut:
+	$(PY) test/eval/replay_extractions.py \
+	    --jsonl ~/Downloads/donut_outputs.jsonl \
+	    --label donut \
+	    --out test/eval/donut_report.json
+
+# Aggregate all model reports + Claude into a single side-by-side comparison
+# table. Reads whatever {qwen,internvl3,donut}_report.json files exist plus
+# the Claude baseline report.json.
+eval-compare-all:
+	$(PY) test/eval/compare_models.py
 
 build-eval-data:
 	cd test/eval/data && $(PY) ../build_dataset.py
