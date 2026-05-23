@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..config import settings
 from .base import InferenceError, LabelExtractor
+from .claude_code import ClaudeCodeExtractor
 from .cloud import CloudExtractor
 from .mock import MockExtractor
 from .onprem import OnPremExtractor
@@ -26,6 +27,8 @@ def get_extractor(brand_hint: str = "") -> LabelExtractor:
                 f"{settings.cloud_provider!r}. Set the matching *_API_KEY env var."
             )
         return CloudExtractor(provider=settings.cloud_provider, model=settings.cloud_model, api_key=key)
+    if mode == "claude-code":
+        return ClaudeCodeExtractor(model=settings.cloud_model)
     if mode == "onprem":
         return OnPremExtractor(vlm_url=settings.onprem_vlm_url, vlm_model=settings.onprem_vlm_model)
     raise InferenceError(f"Unknown INFERENCE_MODE={mode!r}")

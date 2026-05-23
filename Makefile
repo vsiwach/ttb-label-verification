@@ -20,7 +20,8 @@ help:
 	@echo "  eval-real       Run real eval against test/eval/data (requires backend already running in CLOUD mode)"
 	@echo "  build-eval-data Build/refresh the stratified COLA Cloud sample (idempotent)"
 	@echo "  serve-mock      Run backend in mock mode (no API key required)"
-	@echo "  serve-cloud     Run backend in cloud mode (reads backend/.env)"
+	@echo "  serve-cloud     Run backend in cloud mode (reads backend/.env; pay-per-token API)"
+	@echo "  serve-max       Run backend via Claude Code CLI (uses Max subscription, no API key)"
 	@echo "  clean           Remove caches"
 
 install:
@@ -52,6 +53,13 @@ serve-mock:
 
 serve-cloud:
 	cd backend && unset ANTHROPIC_API_KEY && set -a && . ./.env && set +a && \
+	    ../$(UVICORN) app.main:app --reload --port $(PORT)
+
+# Routes extraction through the `claude` CLI; uses your Claude Code / Max
+# subscription quota instead of pay-per-token API credits. Requires Claude
+# Code installed and logged in. No ANTHROPIC_API_KEY needed.
+serve-max:
+	cd backend && INFERENCE_MODE=claude-code ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
 clean:

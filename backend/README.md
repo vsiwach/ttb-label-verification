@@ -72,7 +72,8 @@ Selected by `INFERENCE_MODE` in `.env`:
 | Mode    | When to use | Extra setup |
 |---------|-------------|-------------|
 | `mock`  | local development, frontend wiring tests | none |
-| `cloud` | real label images (prototype demo) | `ANTHROPIC_API_KEY` |
+| `cloud` | real label images, pay-per-token | `ANTHROPIC_API_KEY` in `.env` |
+| `claude-code` | real label images, **billed against your Claude Code / Max subscription instead of API credits** | Claude Code installed + logged in (`claude` on PATH); no API key needed |
 | `onprem`| firewalled / air-gapped (Azure Government, agency VNet) | `tesseract-ocr` + `pip install pytesseract`; optional self-hosted Phi-3.5-vision at `ONPREM_VLM_URL` |
 
 Switch by editing `.env`:
@@ -84,7 +85,37 @@ CLOUD_MODEL=claude-sonnet-4-6
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### Cloud (Anthropic Claude)
+### Claude Code (Max subscription) — recommended for the demo
+
+If you have Claude Code installed and a Max / Pro subscription, you can route
+extraction through the `claude` CLI's headless mode instead of paying per
+token via the API:
+
+```ini
+INFERENCE_MODE=claude-code
+CLOUD_MODEL=claude-sonnet-4-6
+# No ANTHROPIC_API_KEY required.
+```
+
+```bash
+make serve-max   # or: INFERENCE_MODE=claude-code uvicorn app.main:app --reload
+```
+
+Under the hood the adapter writes the uploaded image to a short-lived temp
+file, then runs:
+
+```
+claude -p --output-format json --json-schema <ExtractedLabel schema> \
+       --model claude-sonnet-4-6 \
+       --add-dir /tmp/<dir>  --allowed-tools Read \
+       "Read the label at @/tmp/<file>.webp; extract per the schema."
+```
+
+Latency is ~30–40 s/label (vs ~10 s on the direct API path) because of the
+CLI subprocess + agent loop. Same model, same vision capability, but billed
+against your Max plan.
+
+### Cloud (Anthropic Claude API)
 
 - Single API call per label using **tool_use** with a fixed JSON schema, so
   the response shape is guaranteed and the model is forbidden from
