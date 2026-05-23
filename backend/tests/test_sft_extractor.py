@@ -83,6 +83,44 @@ def test_parse_empty_returns_none():
     assert _try_parse_json("nope, no JSON here") is None
 
 
+def test_parse_markdown_code_fence():
+    raw = '```json\n{"fields": {"Brand name": {"value": "Acme", "confidence": 0.9}}}\n```'
+    parsed = _try_parse_json(raw)
+    assert parsed is not None
+    assert parsed["fields"]["Brand name"]["value"] == "Acme"
+
+
+def test_parse_truncated_missing_closing_brace():
+    """Model ran out of tokens mid-output — try to balance and parse what we have."""
+    raw = '{"fields": {"Brand name": {"value": "Acme", "confidence": 0.9}'
+    parsed = _try_parse_json(raw)
+    assert parsed is not None
+    assert parsed["fields"]["Brand name"]["value"] == "Acme"
+
+
+def test_parse_smart_quotes():
+    """Some models emit Unicode smart quotes — normalize before parsing."""
+    raw = '{“fields”: {“Brand name”: {“value”: “Acme”, “confidence”: 0.9}}}'
+    parsed = _try_parse_json(raw)
+    assert parsed is not None
+    assert parsed["fields"]["Brand name"]["value"] == "Acme"
+
+
+def test_parse_trailing_garbage_after_valid_json():
+    """Model emits valid JSON then keeps rambling — recover the prefix."""
+    raw = '{"fields": {"Brand name": {"value": "Acme", "confidence": 0.9}}, "image_quality": {"score": 0.9, "legible": true}} and now some prose that follows the JSON which makes the model output past the boundary {invalid stuff'
+    parsed = _try_parse_json(raw)
+    assert parsed is not None
+    assert parsed["fields"]["Brand name"]["value"] == "Acme"
+
+
+def test_parse_control_characters_stripped():
+    raw = '{"fields": {"Brand name": {"value": "Acme\x01\x02", "confidence": 0.9}}}'
+    parsed = _try_parse_json(raw)
+    assert parsed is not None
+    assert "Acme" in parsed["fields"]["Brand name"]["value"]
+
+
 def test_to_extracted_label_handles_missing_data():
     label = _to_extracted_label(None)
     assert label.warning_present is False

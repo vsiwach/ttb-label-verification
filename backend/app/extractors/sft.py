@@ -201,22 +201,87 @@ class _QwenLoader:
 # ---------------------------------------------------------------------------
 
 def _try_parse_json(raw: str) -> Optional[dict[str, Any]]:
-    """Best-effort: find the outermost {...} and json.loads it. Some models
-    emit chain-of-thought or stray prose around the JSON."""
+    """Best-effort JSON recovery from VLM output.
+
+    Models trained on JSON targets occasionally emit:
+      - chain-of-thought prose around the JSON
+      - markdown code fences (```json ... ```)
+      - trailing commas before } or ]
+      - truncated output (missing closing braces)
+      - multiple candidate JSON objects
+      - smart quotes ("" '') instead of plain ASCII
+      - control characters that break json.loads
+
+    We try increasingly aggressive recovery strategies and return the first
+    that parses. Returns None only if nothing recoverable.
+    """
     if not raw:
         return None
-    s, e = raw.find("{"), raw.rfind("}")
-    if s == -1 or e == -1 or e <= s:
+
+    # Strategy 0: strip markdown code fences if present
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+
+    s = text.find("{")
+    e = text.rfind("}")
+    if s == -1:
         return None
+
+    # If we never see a closing brace, manufacture one (truncated output)
+    if e == -1 or e < s:
+        text = text[s:] + "}"
+        s = 0
+        e = len(text) - 1
+
+    candidate = text[s : e + 1]
+
+    # Normalize common issues before parsing attempts
+    def _normalize(c: str) -> str:
+        c = c.replace("“", '"').replace("”", '"')   # smart double quotes
+        c = c.replace("‘", "'").replace("’", "'")   # smart single quotes
+        c = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", c)    # ASCII control chars
+        return c
+
+    candidate = _normalize(candidate)
+
+    # Strategy 1: parse as-is
     try:
-        return json.loads(raw[s : e + 1])
+        return json.loads(candidate)
     except json.JSONDecodeError:
-        # Strip trailing commas — common LM mistake
-        cleaned = re.sub(r",(\s*[}\]])", r"\1", raw[s : e + 1])
+        pass
+
+    # Strategy 2: strip trailing commas before } or ]
+    cleaned = re.sub(r",(\s*[}\]])", r"\1", candidate)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Strategy 3: append missing closing braces (count { vs } and balance)
+    opens  = candidate.count("{")
+    closes = candidate.count("}")
+    if opens > closes:
+        balanced = re.sub(r",(\s*[}\]])", r"\1", candidate + "}" * (opens - closes))
         try:
-            return json.loads(cleaned)
+            return json.loads(balanced)
         except json.JSONDecodeError:
-            return None
+            pass
+
+    # Strategy 4: walk the string and try to parse up to each closing brace.
+    # Picks the longest prefix that's valid JSON. Useful when the model
+    # generates valid JSON then keeps going with garbage.
+    for end in range(len(candidate) - 1, max(0, len(candidate) - 5000), -1):
+        if candidate[end] != "}":
+            continue
+        try:
+            sub = re.sub(r",(\s*[}\]])", r"\1", candidate[: end + 1])
+            return json.loads(sub)
+        except json.JSONDecodeError:
+            continue
+
+    return None
 
 
 def _to_extracted_label(data: Optional[dict[str, Any]]) -> ExtractedLabel:
