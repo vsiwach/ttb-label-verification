@@ -99,7 +99,16 @@ def replay(jsonl_path: Path, csv_path: Path) -> dict:
     print(f"Loaded {len(rows)} ground-truth rows from {csv_path}")
 
     misses: list[dict] = []
-    latencies: list[float] = []  # Qwen inference latencies — populated from the JSONL if present
+    latencies: list[float] = []
+    # Pull latencies from the raw JSONL records so the report has mean/p95
+    # for the SFT model (the values were captured during Colab extraction).
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            rec = json.loads(line)
+            if "latency_sec" in rec and rec["latency_sec"] is not None:
+                latencies.append(float(rec["latency_sec"]))
     auto_pass_approved = 0
     warn_false_flag_approved = 0
     field_total = field_correct = 0
@@ -206,10 +215,14 @@ def replay(jsonl_path: Path, csv_path: Path) -> dict:
         "verdict_accuracy": round(verdict_correct / verdict_total, 4) if verdict_total else None,
         "auto_pass_rate_approved": round(auto_pass_approved / approved_n, 4) if approved_n else None,
         "warning_false_flag_rate": round(warn_false_flag_approved / approved_n, 4) if approved_n else None,
-        "latency_p95": None,   # see notes: Qwen inference happened on Colab A100; latency is in the eval cell's stdout, not the replay
-        "latency_mean": None,
-        "qwen_extraction_missing_count": missing_extraction,
-        "qwen_output_unparseable_count": unparseable,
+        "latency_mean": round(statistics.mean(latencies), 3) if latencies else None,
+        "latency_p95": round(sorted(latencies)[max(0, int(0.95 * len(latencies)) - 1)], 3) if latencies else None,
+        "sft_extraction_missing_count": missing_extraction,
+        "sft_output_unparseable_count": unparseable,
+        "sft_empty_fields_count": sum(
+            1 for r in qwen_outputs.values()
+            if r and isinstance(r.get("fields"), dict) and not r["fields"]
+        ),
         "misses": misses[:50],   # cap to keep the report readable
     }
 

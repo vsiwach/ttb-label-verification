@@ -16,6 +16,8 @@ from app.extractors.sft import (
     _is_qwen_family,
     _try_parse_json,
     _to_extracted_label,
+    _canonicalize_field_name,
+    _coerce_confidence,
 )
 
 
@@ -119,6 +121,110 @@ def test_parse_control_characters_stripped():
     parsed = _try_parse_json(raw)
     assert parsed is not None
     assert "Acme" in parsed["fields"]["Brand name"]["value"]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Field-name aliasing (model emits snake_case → normalized to canonical)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_canonicalize_exact_match():
+    assert _canonicalize_field_name("Brand name") == "Brand name"
+    assert _canonicalize_field_name("Class & type") == "Class & type"
+
+def test_canonicalize_snake_case():
+    assert _canonicalize_field_name("brand_name") == "Brand name"
+    assert _canonicalize_field_name("alcohol_content") == "Alcohol content"
+    assert _canonicalize_field_name("net_contents") == "Net contents"
+    assert _canonicalize_field_name("bottler_name_address") == "Bottler name/address"
+    assert _canonicalize_field_name("country_of_origin") == "Country of origin"
+
+def test_canonicalize_common_aliases():
+    # The Qwen LoRA output from the eval — exact strings the model emitted
+    assert _canonicalize_field_name("brand_name") == "Brand name"
+    assert _canonicalize_field_name("product_type") == "Class & type"
+    assert _canonicalize_field_name("volume") == "Net contents"
+    assert _canonicalize_field_name("Volume") == "Net contents"
+    assert _canonicalize_field_name("bottled_by") == "Bottler name/address"
+    assert _canonicalize_field_name("Producer") == "Bottler name/address"
+    assert _canonicalize_field_name("Distiller") == "Bottler name/address"
+    assert _canonicalize_field_name("Importer") == "Bottler name/address"
+    assert _canonicalize_field_name("ABV") == "Alcohol content"
+    assert _canonicalize_field_name("Proof") == "Alcohol content"
+    assert _canonicalize_field_name("Origin") == "Country of origin"
+
+def test_canonicalize_unknown_returns_none():
+    # Random keys the model invents shouldn't pollute the extracted fields
+    assert _canonicalize_field_name("location") is None     # too generic
+    assert _canonicalize_field_name("ingredients") is None
+    assert _canonicalize_field_name("description") is None
+    assert _canonicalize_field_name("") is None
+    assert _canonicalize_field_name(None) is None  # type: ignore
+
+def test_to_extracted_label_normalizes_field_names():
+    """End-to-end: model emits snake_case → ExtractedLabel has canonical keys."""
+    data = {
+        "fields": {
+            "brand_name":      {"value": "Acme",          "confidence": 0.9},
+            "alcohol_content": {"value": "12.5% ABV",      "confidence": 0.92},
+            "volume":          {"value": "750 mL",         "confidence": 0.95},
+            "bottled_by":      {"value": "Acme Winery",    "confidence": 0.85},
+            "location":        {"value": "Sonoma, CA",     "confidence": 0.8},   # dropped — unknown
+        },
+        "government_warning": {"present": False, "detected_text": "",
+                                "casing_all_caps": False, "heading_bold": False, "body_bold": False},
+        "image_quality": {"score": 0.9, "legible": True},
+    }
+    label = _to_extracted_label(data)
+    assert "Brand name" in label.fields
+    assert label.fields["Brand name"].value == "Acme"
+    assert label.fields["Alcohol content"].value == "12.5% ABV"
+    assert label.fields["Net contents"].value == "750 mL"
+    assert label.fields["Bottler name/address"].value == "Acme Winery"
+    # "location" should be dropped as it doesn't map to any canonical field
+    assert "location" not in label.fields
+    assert "Location" not in label.fields
+
+def test_to_extracted_label_higher_confidence_wins_on_duplicate():
+    """If the model emits both 'brand_name' AND 'Brand name', keep the higher."""
+    data = {
+        "fields": {
+            "brand_name": {"value": "Foo", "confidence": 0.5},
+            "Brand name": {"value": "Bar", "confidence": 0.9},
+        },
+        "government_warning": {"present": False, "detected_text": "",
+                                "casing_all_caps": False, "heading_bold": False, "body_bold": False},
+        "image_quality": {"score": 0.9, "legible": True},
+    }
+    label = _to_extracted_label(data)
+    assert label.fields["Brand name"].value == "Bar"
+    assert label.fields["Brand name"].confidence == 0.9
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Confidence coercion — models emit 'high'/'0.9'/'90%'/None
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_coerce_confidence_numeric():
+    assert _coerce_confidence(0.9) == 0.9
+    assert _coerce_confidence(1) == 1.0
+    assert _coerce_confidence(0) == 0.0
+    assert _coerce_confidence(2.0) == 1.0    # clamped
+    assert _coerce_confidence(-0.5) == 0.0   # clamped
+
+def test_coerce_confidence_descriptor_strings():
+    assert _coerce_confidence("high") == 0.90
+    assert _coerce_confidence("HIGH") == 0.90
+    assert _coerce_confidence("medium") == 0.70
+    assert _coerce_confidence("low") == 0.40
+    assert _coerce_confidence("unknown_word") == 0.70  # default
+
+def test_coerce_confidence_numeric_strings():
+    assert _coerce_confidence("0.9") == 0.9
+    assert _coerce_confidence("90") == 0.9
+    assert _coerce_confidence("90%") == 0.9
+
+def test_coerce_confidence_none():
+    assert _coerce_confidence(None) == 0.0
 
 
 def test_to_extracted_label_handles_missing_data():

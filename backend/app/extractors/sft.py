@@ -284,6 +284,101 @@ def _try_parse_json(raw: str) -> Optional[dict[str, Any]]:
     return None
 
 
+# Canonical field names the rules engine expects. Models often emit snake_case
+# or alternative names (brand_name, volume, bottled_by, product_type, etc).
+# This map normalizes them to the schema names so the engine + scorer see
+# consistent keys regardless of which model produced the JSON.
+_FIELD_ALIASES = {
+    "Brand name": (
+        "brand_name", "brand", "name", "product_name", "brewery_name",
+        "winery_name", "distillery_name", "brewery", "distillery",
+        "sub_brand", "fanciful_name",
+    ),
+    "Class & type": (
+        "class_type", "class", "type", "product_type", "beverage_type",
+        "wine_type", "beer_style", "spirit_type", "style", "varietal",
+        "category", "designation",
+    ),
+    "Alcohol content": (
+        "alcohol_content", "alcohol", "abv", "alc", "alc_vol", "alcohol_by_volume",
+        "alcoholic_strength", "proof",
+    ),
+    "Net contents": (
+        "net_contents", "volume", "net_volume", "contents", "size",
+        "volume_ml", "fluid_volume", "fill", "package_size",
+    ),
+    "Bottler name/address": (
+        "bottler_name_address", "bottler", "bottled_by", "producer",
+        "produced_by", "distiller", "distilled_by", "importer", "imported_by",
+        "manufacturer", "producer_address", "bottler_address",
+        "produced_and_bottled_by", "distilled_and_bottled_by",
+    ),
+    "Country of origin": (
+        "country_of_origin", "origin", "country", "product_of", "imported_from",
+        "product_origin", "made_in",
+    ),
+}
+
+# Build reverse lookup: alias_lowercase → canonical
+_REVERSE_ALIASES: dict[str, str] = {}
+for canonical, aliases in _FIELD_ALIASES.items():
+    _REVERSE_ALIASES[canonical.lower()] = canonical
+    _REVERSE_ALIASES[canonical.lower().replace(" ", "_")] = canonical
+    _REVERSE_ALIASES[canonical.lower().replace(" & ", "_")] = canonical
+    _REVERSE_ALIASES[canonical.lower().replace(" ", "")] = canonical
+    for a in aliases:
+        _REVERSE_ALIASES[a.lower()] = canonical
+        _REVERSE_ALIASES[a.lower().replace("_", " ")] = canonical
+        _REVERSE_ALIASES[a.lower().replace("_", "")] = canonical
+
+
+def _canonicalize_field_name(name: str) -> Optional[str]:
+    """Map a model-emitted field key to the rules-engine canonical name.
+    Returns None if the name doesn't match any known field — caller drops it.
+    Case-insensitive, snake_case-insensitive, '&'-vs-'and'-insensitive."""
+    if not name:
+        return None
+    key = name.strip().lower()
+    if key in _REVERSE_ALIASES:
+        return _REVERSE_ALIASES[key]
+    # Try without underscores / extra spaces
+    nuked = re.sub(r"[\s_\-]+", "", key)
+    for k, v in _REVERSE_ALIASES.items():
+        if re.sub(r"[\s_\-]+", "", k) == nuked:
+            return v
+    return None
+
+
+def _coerce_confidence(v: Any) -> float:
+    """Models sometimes emit confidence as a string ('high', '0.9', '90%')
+    or as None; coerce to a float in [0, 1]. Unknown strings default to 0.7
+    (treated as moderate confidence — the rules engine still demotes low-
+    confidence matches via its own < 0.60 threshold)."""
+    if v is None:
+        return 0.0
+    if isinstance(v, bool):
+        return 1.0 if v else 0.0
+    if isinstance(v, (int, float)):
+        return max(0.0, min(1.0, float(v)))
+    if isinstance(v, str):
+        s = v.strip().lower().rstrip("%")
+        # Numeric string ("0.9", "90")
+        try:
+            n = float(s)
+            if n > 1.0:
+                n /= 100.0
+            return max(0.0, min(1.0, n))
+        except ValueError:
+            pass
+        # Descriptor strings
+        return {
+            "high":     0.90, "very high": 0.95, "certain": 0.99,
+            "medium":   0.70, "moderate":  0.70, "average":  0.70,
+            "low":      0.40, "uncertain": 0.30, "unsure":   0.30,
+        }.get(s, 0.70)
+    return 0.7
+
+
 def _to_extracted_label(data: Optional[dict[str, Any]]) -> ExtractedLabel:
     if not data:
         return ExtractedLabel(
@@ -298,13 +393,25 @@ def _to_extracted_label(data: Optional[dict[str, Any]]) -> ExtractedLabel:
         )
 
     fields: dict[str, ExtractedField] = {}
-    for name, obs in (data.get("fields") or {}).items():
+    for raw_name, obs in (data.get("fields") or {}).items():
         if not isinstance(obs, dict):
             continue
-        fields[str(name)] = ExtractedField(
+        # Normalize the model's field key to the canonical schema name.
+        # If it doesn't match anything we know, drop it — the engine only
+        # scores against known field names, so unknown extras are noise.
+        canonical = _canonicalize_field_name(str(raw_name))
+        if canonical is None:
+            continue
+        # If we already have a value for this canonical name (e.g. model
+        # emitted both "brand_name" AND "Brand name"), keep the higher
+        # confidence one.
+        new_field = ExtractedField(
             value=str(obs.get("value", "")),
-            confidence=float(obs.get("confidence", 0.0) or 0.0),
+            confidence=_coerce_confidence(obs.get("confidence")),
         )
+        existing = fields.get(canonical)
+        if existing is None or new_field.confidence > existing.confidence:
+            fields[canonical] = new_field
 
     gw = data.get("government_warning") or {}
     style = WarningStyle(
