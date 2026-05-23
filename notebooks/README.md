@@ -33,7 +33,14 @@ Different bets, same eval harness — pick the winner head-to-head:
    - LoRA fine-tune (rank 16, attention + MLP projections), 3 epochs
    - Per-field accuracy + warning-presence accuracy on the held-out test set
    - Saves the adapter, processor config, and eval report to Drive
-4. Caffeinate your Mac so the tab stays alive. (`brew install caffeine` or System Preferences → Energy Saver.)
+   - **Zips everything and triggers a browser download** — adapter lands at `~/Downloads/ttb_sft_{model_tag}.zip` on your Mac
+4. Caffeinate your Mac so the tab stays alive. (`brew install caffeine` or `caffeinate -i &` in a terminal.)
+
+## Running both in parallel
+
+With Colab Pro you can have two simultaneous A100 sessions — open the Qwen notebook in one browser tab, the Kimi notebook in another. Each tab gets its own VM.
+
+On the free tier you're limited to one GPU session at a time. Either run them sequentially OR use two Google accounts (one notebook on each).
 
 ## After training
 
