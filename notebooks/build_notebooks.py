@@ -735,10 +735,22 @@ def main():
     # ── Qwen notebook ──
     qwen_cells = [
         header("Qwen2.5-VL-7B", "unsloth/Qwen2.5-VL-7B-Instruct", "Unsloth"),
-        md("## 0. Install dependencies & set model tag\n"),
+        md("## 0. Install dependencies & set model tag\n",
+           "\n",
+           "**IMPORTANT**: pin `numpy<2.0` before everything else — Colab's default "
+           "NumPy 2.x is binary-incompatible with several packages compiled against "
+           "NumPy 1.x. After install, **Runtime → Restart session** then continue.\n"),
         code("!pip install -q --upgrade pip\n",
+             "# Pin numpy<2 BEFORE anything else to avoid 'numpy.dtype size changed' ValueError.\n",
+             "!pip install -q --force-reinstall 'numpy<2.0'\n",
              "!pip install -q \"unsloth[colab-new]\" 'trl<0.10.0' peft accelerate bitsandbytes\n",
-             "!pip install -q datasets pillow requests tqdm\n"),
+             "!pip install -q datasets pillow requests tqdm\n",
+             "\n",
+             "import sys\n",
+             "if 'numpy' in sys.modules:\n",
+             "    print('⚠️  numpy is already imported — please Runtime → Restart session, then Run all again.')\n",
+             "else:\n",
+             "    import numpy as _np; print('numpy version:', _np.__version__)\n"),
         model_tag_cell("qwen2_5_vl_7b", "unsloth/Qwen2.5-VL-7B-Instruct"),
         SETUP_DRIVE,
         *DOWNLOAD_DATA,
@@ -762,10 +774,29 @@ def main():
     # ── Kimi notebook ──
     kimi_cells = [
         header("Kimi-VL-A3B-Thinking", "moonshotai/Kimi-VL-A3B-Thinking-2506", "transformers + PEFT + TRL"),
-        md("## 0. Install dependencies & set model tag\n"),
+        md("## 0. Install dependencies & set model tag\n",
+           "\n",
+           "**IMPORTANT**: Colab's default NumPy 2.x is binary-incompatible with several "
+           "packages in this stack (bitsandbytes / sentencepiece extensions compiled "
+           "against NumPy 1.x). We pin `numpy<2.0` here.\n",
+           "\n",
+           "After this cell finishes, **Runtime → Restart session** (the cached numpy in "
+           "memory must be cleared), then continue with the rest of the cells. The notebook "
+           "will skip cells that already succeeded and resume from the imports.\n"),
         code("!pip install -q --upgrade pip\n",
+             "# Pin numpy<2 BEFORE anything else to avoid the bitsandbytes/sentencepiece\n",
+             "# 'numpy.dtype size changed' binary-incompatibility ValueError.\n",
+             "!pip install -q --force-reinstall 'numpy<2.0'\n",
              "!pip install -q transformers accelerate bitsandbytes peft 'trl<0.10.0'\n",
-             "!pip install -q datasets pillow requests tqdm sentencepiece\n"),
+             "!pip install -q datasets pillow requests tqdm sentencepiece\n",
+             "\n",
+             "# Verify numpy version before restart\n",
+             "import importlib, sys\n",
+             "if 'numpy' in sys.modules:\n",
+             "    print('⚠️  numpy is already imported in this session — please Runtime → Restart session, then Run all again.')\n",
+             "else:\n",
+             "    import numpy as _np; print('numpy version:', _np.__version__)\n",
+             "    assert _np.__version__.startswith('1.'), f'expected numpy 1.x, got {_np.__version__}'\n"),
         model_tag_cell("kimi_vl_a3b_thinking", "moonshotai/Kimi-VL-A3B-Thinking-2506"),
         SETUP_DRIVE,
         *DOWNLOAD_DATA,
