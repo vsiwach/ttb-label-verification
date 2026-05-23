@@ -68,6 +68,11 @@ export interface VerificationResult {
 /** What the user (or a saved record) supplies as ground truth from the COLA application. */
 export interface ApplicationData {
   brandName: string;
+  /** COLA Form 5100.31 Field 16 — Fanciful / Product Name. Labels often
+   *  prominently print this (SKU) instead of the registered brewery brand.
+   *  Optional; when set, the backend accepts a label-extracted brand match
+   *  against either brandName or productName. */
+  productName?: string;
   classType: string;
   alcoholContent: string;       // e.g. "45% Alc./Vol. (90 Proof)"
   netContents: string;          // e.g. "750 mL"

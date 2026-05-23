@@ -253,6 +253,10 @@ def main():
             "bottlerNameAddress": "",
             "beverageType": bev,
         }
+        # Pass the COLA form's Product/Fanciful Name so the engine can match
+        # against either brand or product (labels often show the SKU prominently).
+        if row.get("PRODUCT_NAME"):
+            app["productName"] = row["PRODUCT_NAME"]
         if (row.get("DOMESTIC_OR_IMPORTED") or "").lower() == "imported":
             app["countryOfOrigin"] = row.get("ORIGIN_NAME", "")
         try:

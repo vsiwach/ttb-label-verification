@@ -63,6 +63,12 @@ class ApplicationData(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     brandName: str
+    # The COLA form's Fanciful Name / Product Name (TTB Form 5100.31 Field 16).
+    # Real labels often print this MORE PROMINENTLY than the registered brand
+    # (e.g., brewery 'Half Acre' + product 'NEON FOOTHILLS' — the label has
+    # 'NEON FOOTHILLS' as the largest text). When supplied, the engine accepts
+    # a label-extracted brand match against EITHER brandName or productName.
+    productName: Optional[str] = None
     classType: str
     alcoholContent: str
     netContents: str

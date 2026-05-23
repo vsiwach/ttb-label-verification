@@ -245,6 +245,8 @@ def run_real(api_base: str, csv_path: str, images_dir: str, limit: int):
             "bottlerNameAddress": row.get(COL["bottler"], ""),
             "beverageType":       derive_beverage(row),
         }
+        if row.get(COL["product"]):
+            app["productName"] = row[COL["product"]]
         origin = row.get(COL["origin"], "")
         if origin:
             app["countryOfOrigin"] = origin

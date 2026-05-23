@@ -308,6 +308,56 @@ def test_brand_with_business_suffix_dropped_is_match():
     assert brand.status == "match"
 
 
+def test_brand_matches_against_product_name_when_label_prints_sku():
+    """Real labels often print the SKU/fanciful name MORE prominently than the
+    registered brewery brand. Half Acre Beer Co. ships 'NEON FOOTHILLS' as the
+    huge label text. When the application supplies productName, the engine
+    accepts either as a match."""
+    app = ApplicationData(
+        brandName="Half Acre", productName="Neon Foothills",
+        classType="beer", alcoholContent="", netContents="12 FL OZ",
+        bottlerNameAddress="Half Acre Beer Co, Chicago, IL",
+        beverageType="beer",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("NEON FOOTHILLS", 0.99),
+            "Class & type":        ExtractedField("New Zealand Style Pilsner", 0.96),
+            "Net contents":        ExtractedField("12 FL OZ", 0.99),
+            "Bottler name/address": ExtractedField("Half Acre Beer Co, Chicago, IL", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    brand = next(f for f in r.fields if f.fieldName == "Brand name")
+    assert brand.status == "match"
+    assert "Product/Fanciful Name" in (brand.note or "")
+
+
+def test_brand_completely_different_still_flagged_even_with_product():
+    """When NEITHER brand nor product matches, still flag."""
+    app = ApplicationData(
+        brandName="Foursquare", productName="Epilogue",
+        classType="aged rum", alcoholContent="40% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Foursquare Distillery", beverageType="spirits",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("COMPLETELY OTHER BRAND ZZZ", 0.95),
+            "Class & type":        ExtractedField("Aged Rum", 0.95),
+            "Alcohol content":     ExtractedField("40% Alc./Vol.", 0.95),
+            "Net contents":        ExtractedField("750 mL", 0.95),
+            "Bottler name/address": ExtractedField("Foursquare Distillery", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    brand = next(f for f in r.fields if f.fieldName == "Brand name")
+    assert brand.status == "flag"
+
+
 def test_brand_completely_different_still_flagged():
     """Make sure we didn't make brand matching so loose it can't catch real
     mismatches. 'Foursquare' (declared) vs 'EPILOGUE' (label) → flag."""

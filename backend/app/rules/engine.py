@@ -107,44 +107,55 @@ def _brand_normalize(s: str) -> str:
     return s
 
 
-def _classify_brand(declared: str, extracted: str):
+def _classify_brand(declared: str, extracted: str, *, product_name: str = ""):
     """Brand-name comparison tuned for real-world stylistic realities.
 
     Compared to the generic classifier:
       - Case-only differences → 'match' (TTB-registered name in title case vs
         the same name printed in all caps is a stylistic, not substantive,
-        difference). The PRD's STONE'S THROW-as-'likely' case is now also
-        treated this way — both sides resolve via the same engine.
+        difference).
       - Common business suffixes are stripped before comparison
         (e.g. 'Suprema Imported Beer' ≡ 'Suprema').
-      - Substantively different brands still produce 'flag'.
+      - **A match against the COLA form's Product/Fanciful Name also counts
+        as match** — real labels often print the SKU/product more
+        prominently than the registered brand. This is the single largest
+        false-positive reducer on real artwork.
+      - Substantively different brand AND product still produce 'flag'.
     """
     from .field_match import FieldVerdict, _strict_normalize, classify_field
 
-    d_norm = _brand_normalize(declared)
-    e_norm = _brand_normalize(extracted)
-
     if not extracted:
         return classify_field(declared, extracted)
+
+    e_norm = _brand_normalize(extracted)
+    d_norm = _brand_normalize(declared)
+    p_norm = _brand_normalize(product_name)
+
+    # 1. Direct match against the registered brand.
     if d_norm and e_norm and d_norm == e_norm:
         return FieldVerdict(
-            status="match",
-            normalized_declared=d_norm,
-            normalized_extracted=e_norm,
-            similarity=1.0,
+            status="match", normalized_declared=d_norm, normalized_extracted=e_norm, similarity=1.0,
             note=None if _strict_normalize(declared) == _strict_normalize(extracted) else
                  "Brand name printed in different case / with different business suffix; same registered name.",
         )
-    # Prefix containment: 'suprema' in 'suprema imported beer' or vice versa
-    if d_norm and e_norm and (d_norm in e_norm or e_norm in d_norm):
+
+    # 2. Match against the COLA form's Product/Fanciful Name (when supplied).
+    if p_norm and e_norm and p_norm == e_norm:
         return FieldVerdict(
-            status="likely",
-            normalized_declared=d_norm,
-            normalized_extracted=e_norm,
-            similarity=0.9,
-            note="Brand name appears as a shortened/extended form on the label; please verify.",
+            status="match", normalized_declared=d_norm, normalized_extracted=e_norm, similarity=1.0,
+            note=f"Label prints the Product/Fanciful Name (per COLA form) — registered brand is '{declared}'.",
         )
-    # Fall back to the generic classifier (handles similarity + flag).
+
+    # 3. Containment in either name: shortened/extended form (e.g. 'Suprema'
+    # vs 'Suprema Imported Beer'; or label has product name containing brand).
+    for cand_norm, cand_label in [(d_norm, "registered brand"), (p_norm, "product name")]:
+        if cand_norm and e_norm and (cand_norm in e_norm or e_norm in cand_norm):
+            return FieldVerdict(
+                status="likely", normalized_declared=cand_norm, normalized_extracted=e_norm, similarity=0.9,
+                note=f"Label brand appears as a shortened/extended form of the {cand_label}; please verify.",
+            )
+
+    # 4. Fall back to the generic classifier against the declared brand.
     return classify_field(declared, extracted)
 
 
@@ -318,7 +329,10 @@ def verify(
         # Per-field normalization for real-world realities the COLA form doesn't capture:
         extracted_value = extracted_field.value
         if spec.label_name == "Brand name":
-            verdict = _classify_brand(declared, extracted_value)
+            # Accept a match against EITHER the registered brand or the
+            # COLA form's Product/Fanciful Name. Labels routinely print the
+            # SKU/product name more prominently than the brewery brand.
+            verdict = _classify_brand(declared, extracted_value, product_name=app.productName or "")
         elif spec.label_name == "Country of origin":
             verdict = _classify_country_of_origin(declared, extracted_value)
         elif spec.label_name == "Class & type" and _is_umbrella_class(declared):

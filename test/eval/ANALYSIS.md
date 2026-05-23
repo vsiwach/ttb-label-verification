@@ -36,7 +36,7 @@ cloud-mode backend across the categories in `test/TEST_PLAN.md`:
 | **I** Imports + COO | imported COLAs | 15 | 6/15 warning false-flags + 3/15 COO false-flags from foreign-language prefixes (`Produit de`, `Hecho en`) |
 | **M** Multi-image | front vs back paired | 10+10 | 10/10 back panels carry the warning, 9/10 fronts don't — confirms back-prefer logic |
 
-### Four fixes applied (each locked in by a unit test)
+### FIVE fixes applied (each locked in by a unit test)
 
 1. **Brand: case-only differences → `match`** (was `likely`).
    COLA forms store brands in title case; real labels routinely print in ALL CAPS for prominence. That's stylistic, not substantive.
@@ -46,6 +46,14 @@ cloud-mode backend across the categories in `test/TEST_PLAN.md`:
    Single-character OCR slips don't false-flag as paraphrase. The engine sets `verbatimMatch=True` with a `near_verbatim` advisory deviation so the agent verifies visually but the verdict isn't auto-promoted to needs-review. Real paraphrase (substantive wording change) still scores below 0.95 → `verbatim=False`.
 4. **COO: multilingual prefixes + dual-language displays**.
    `Produit de`, `Hecho en`, `Producto de`, `Prodotto in`, `Erzeugnis aus`, `Feito em`, plus dual-language stripping for displays like `PRODUIT DE FRANCE PRODUCT OF FRANCE`.
+5. **Preprocessing: `productName` accepted as alternative brand match**.
+   The COLA form has both a registered BRAND_NAME (often the brewery) and a
+   PRODUCT_NAME / Fanciful Name (often the SKU). Real labels routinely print
+   whichever is more visually prominent — usually the SKU. The
+   `ApplicationData` contract now carries `productName: str?` and the brand
+   classifier accepts a label-extracted name match against either. This is
+   the single biggest false-positive eliminator on real artwork — addresses
+   the "Half Acre" (brewery) vs "NEON FOOTHILLS" (product) class of misses.
 
 ### Before-vs-after impact (same 40 random clean approved labels, same seeds)
 

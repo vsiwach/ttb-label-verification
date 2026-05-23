@@ -15,6 +15,52 @@ happens in the engine.
 
 ---
 
+## Severity model — not every difference is a violation
+
+TTB itself doesn't treat every label-vs-application delta equally. The engine
+classifies differences into three severities that drive the verdict bucket:
+
+| Severity | Definition | What the engine does | Examples |
+|---|---|---|---|
+| **Critical** | Substantive non-compliance with 27 CFR | `flag` → `needs-review` | Mandatory field absent from label; Government Warning paraphrased or missing; spirits/wine with no ABV at all |
+| **Material** | Substantively wrong declared value | `flag` → `needs-review` | Net contents 750 mL declared vs 700 mL printed; ABV 45% declared vs 5% printed; brand AND product both differ from label |
+| **Informational** | Stylistic / format / multi-image realities | `match` or `likely` → max `needs-confirm`, never `needs-review` | Brand printed in ALL CAPS; "KY" abbreviation; "Product of France" prefix; bottler line not in COLA form; ABV/net visible on another panel |
+
+**The pre-processing pipeline that makes this work** (it's where most of the
+"clean approved → false flag" pressure was relieved):
+
+1. `ApplicationData.productName` — when the COLA form's Fanciful Name is
+   supplied, the engine accepts a label-extracted brand match against
+   **either** the registered brand or the product/SKU. Real labels print
+   whichever is more visually prominent.
+2. **Brand normalizer** strips common business suffixes (`Imported Beer`,
+   `Brewing Co`, `Vineyards`, `LLC`, etc.) before comparison.
+3. **Class type umbrella matching** — 40+ COLA registry codes (`beer`,
+   `table red wine`, `whisky specialties`) match any printed sub-designation
+   (`Pilsner`, `Cabernet`, `Bourbon`).
+4. **Net contents semantic match** — both sides parsed to mL, ≤5% delta = match.
+   Handles multi-unit displays (`1 PINT (16 FL OZ)`).
+5. **Alcohol content numeric match** — within 0.1%, any format
+   (`% Alc./Vol.`, `% ABV`, `N Proof`).
+6. **Country of origin multilingual + dual-language strip** —
+   `Produit de / Hecho en / Prodotto in / Erzeugnis aus / Feito em` plus
+   `PRODUIT DE FRANCE PRODUCT OF FRANCE`-style dual displays. Native-language
+   country aliases (`italia ≡ italy`, `españa ≡ spain`).
+7. **Government Warning near-verbatim** — ≥95% character similarity is
+   `verbatimMatch=True` with a `near_verbatim` advisory. Real paraphrase
+   (substantive wording change) still flags below 0.95.
+8. **Empty declared field** (COLA form omits bottler etc.) → `match` with
+   transparent note. No false flag from missing form data.
+9. **Low-confidence extraction** (<0.60) demotes `match` → `likely` so a
+   confident-but-wrong AI read can't auto-pass.
+10. **Missing extracted on a non-warning field** → `likely` (multi-image
+    reality; field may be on another panel), never `flag`.
+
+The result: **only critical or material differences route to `needs-review`.**
+Informational differences max out at `needs-confirm` (one-click agent confirm).
+
+---
+
 ## Verdict bucketing (mirrors the frontend's `groupFor()`)
 
 | Bucket | Meaning | Triggers |
