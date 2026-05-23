@@ -1,0 +1,171 @@
+"""Modal deployment of the Qwen2.5-VL LoRA extractor.
+
+One-time setup (locally):
+    pip install modal
+    modal token new                           # auth
+    modal volume create ttb-qwen-adapter      # adapter weights live here
+    modal volume put ttb-qwen-adapter \\
+        backend/models/qwen2_5_vl_7b/adapter /adapter
+
+Deploy:
+    modal deploy backend/modal_deploy/serve_qwen.py
+
+The deploy prints an HTTPS endpoint like:
+    https://<user>--ttb-qwen-extractor-extract-web.modal.run
+
+Point the backend at it by setting:
+    INFERENCE_MODE=modal
+    MODAL_ENDPOINT_URL=https://<user>--ttb-qwen-extractor-extract-web.modal.run
+
+Cost model (A10G):
+    - $0.40/hr active
+    - $0 idle (scale-to-zero after container_idle_timeout)
+    - ~3-5 s per inference
+    - Demo usage (~10 req/day): well within Modal's $30/mo free tier
+"""
+
+from __future__ import annotations
+
+import modal
+
+# ── Image + dependencies ────────────────────────────────────────────────────
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install(
+        "transformers==4.47.1",      # last known-good for Qwen2.5-VL config loading
+        "peft==0.13.2",
+        "accelerate==1.0.1",
+        "bitsandbytes>=0.44",
+        "torch==2.5.1",
+        "pillow",
+        "fastapi[standard]",
+        "numpy>=2.0,<2.2",
+    )
+)
+
+# Persistent volume for the LoRA adapter (uploaded out-of-band; see header).
+adapter_volume = modal.Volume.from_name("ttb-qwen-adapter", create_if_missing=True)
+# HF cache volume so the 5 GB Qwen base downloads once, not per container.
+hf_cache_volume = modal.Volume.from_name("ttb-qwen-hf-cache", create_if_missing=True)
+
+app = modal.App("ttb-qwen-extractor")
+
+
+_SYSTEM_PROMPT = (
+    "You are a careful transcription assistant for U.S. TTB alcohol label review. "
+    "Given ONE label panel image and the beverage type, READ what is printed and "
+    "RETURN ONLY a JSON object matching the schema below. Do NOT decide compliance.\n\n"
+    "If a field is not clearly visible, OMIT it from the fields object. Never guess; "
+    "never substitute deposit codes (e.g. \"CA CRV\"), NOM IDs, or barcodes. Transcribe "
+    "the Government Warning EXACTLY as printed (preserve case, punctuation, errors).\n\n"
+    "Schema: {fields: {<field name>: {value, confidence}}, government_warning: "
+    "{present, detected_text, casing_all_caps, heading_bold, body_bold, approx_font_mm, "
+    "contrast_ok, separate_and_apart}, image_quality: {score, legible, note}}"
+)
+
+
+@app.cls(
+    image=image,
+    gpu="A10G",                          # 24 GB, $0.40/hr — fits Qwen 7B 4-bit comfortably
+    volumes={
+        "/adapter":                  adapter_volume,
+        "/root/.cache/huggingface":  hf_cache_volume,
+    },
+    container_idle_timeout=300,          # scale to zero after 5 min idle
+    timeout=120,                          # max 2 min per inference
+    min_containers=0,                     # truly scale-to-zero (no warm pool)
+)
+class QwenExtractor:
+    """Loads Qwen2.5-VL base + LoRA adapter once per container, reuses across requests."""
+
+    @modal.enter()
+    def load_model(self):
+        import torch
+        from peft import PeftModel
+        from transformers import (
+            Qwen2_5_VLForConditionalGeneration,
+            AutoProcessor,
+            BitsAndBytesConfig,
+        )
+
+        BASE_MODEL = "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit"
+        ADAPTER_DIR = "/adapter"
+
+        print(f"[Modal] Loading {BASE_MODEL}...")
+        bnb = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+        base = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            BASE_MODEL,
+            quantization_config=bnb,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+        )
+        print(f"[Modal] Applying LoRA adapter from {ADAPTER_DIR}...")
+        self.model = PeftModel.from_pretrained(base, ADAPTER_DIR)
+        self.model.eval()
+        self.processor = AutoProcessor.from_pretrained(ADAPTER_DIR)
+        print("[Modal] Ready.")
+
+    @modal.method()
+    def extract(self, image_bytes: bytes, beverage_type: str) -> dict:
+        """Returns {raw_output: str, latency_sec: float}. Parsing happens client-side."""
+        import io, json, time
+        import torch
+        from PIL import Image
+
+        t0 = time.time()
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        msgs = [
+            {"role": "system", "content": [{"type": "text", "text": _SYSTEM_PROMPT}]},
+            {"role": "user",   "content": [
+                {"type": "image", "image": img},
+                {"type": "text",  "text": f"Beverage type: {beverage_type}. Extract per the schema."},
+            ]},
+        ]
+        text = self.processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+        inputs = self.processor(text=text, images=[img], return_tensors="pt").to(self.model.device)
+        with torch.no_grad():
+            out = self.model.generate(**inputs, max_new_tokens=512, do_sample=False)
+        decoded = self.processor.batch_decode(
+            out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True
+        )[0]
+        return {"raw_output": decoded, "latency_sec": round(time.time() - t0, 3)}
+
+
+# ── HTTPS endpoint (so the backend can hit it from anywhere) ─────────────────
+
+@app.function(image=image, timeout=120)
+@modal.fastapi_endpoint(method="POST", docs=True)
+def extract_web(payload: dict) -> dict:
+    """POST {image_b64: <base64>, beverage_type: "wine"} → {raw_output, latency_sec}.
+
+    We base64-encode the image because Modal's fastapi_endpoint expects JSON.
+    """
+    import base64
+
+    img_b64 = payload.get("image_b64")
+    beverage = payload.get("beverage_type", "wine")
+    if not img_b64:
+        return {"error": "missing image_b64 in payload"}
+    image_bytes = base64.b64decode(img_b64)
+    return QwenExtractor().extract.remote(image_bytes, beverage)
+
+
+# ── Local dev: run a single inference from CLI ──────────────────────────────
+
+@app.local_entrypoint()
+def main(image_path: str, beverage_type: str = "wine"):
+    """Test the deployment from your laptop:
+        modal run backend/modal_deploy/serve_qwen.py \\
+            --image-path test/eval/data/images/25240001000020_0.webp
+    """
+    from pathlib import Path
+    image_bytes = Path(image_path).read_bytes()
+    result = QwenExtractor().extract.remote(image_bytes, beverage_type)
+    print()
+    print(f"latency:     {result['latency_sec']}s")
+    print(f"raw_output:  {result['raw_output'][:500]}...")

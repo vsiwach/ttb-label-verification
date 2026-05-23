@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    inference_mode: Literal["mock", "cloud", "claude-code", "onprem", "sft"] = "mock"
+    inference_mode: Literal["mock", "cloud", "claude-code", "onprem", "sft", "modal"] = "mock"
 
     # Comma-separated origins; parsed in main.py
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     # SFT adapter (used when inference_mode=sft). Points at a bundle that
     # contains a manifest.json (Qwen LoRA or Donut full fine-tune).
     sft_model_dir: str = "backend/models/qwen2_5_vl_7b"
+
+    # Modal-hosted Qwen endpoint (used when inference_mode=modal). Set this
+    # to the URL printed by `modal deploy backend/modal_deploy/serve_qwen.py`.
+    modal_endpoint_url: str = ""
+    modal_timeout: float = 60.0
 
 
 settings = Settings()

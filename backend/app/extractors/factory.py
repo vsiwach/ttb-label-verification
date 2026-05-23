@@ -7,6 +7,7 @@ from .base import InferenceError, LabelExtractor
 from .claude_code import ClaudeCodeExtractor
 from .cloud import CloudExtractor
 from .mock import MockExtractor
+from .modal_remote import ModalRemoteExtractor
 from .onprem import OnPremExtractor
 from .sft import SFTExtractor
 
@@ -34,4 +35,9 @@ def get_extractor(brand_hint: str = "") -> LabelExtractor:
         return OnPremExtractor(vlm_url=settings.onprem_vlm_url, vlm_model=settings.onprem_vlm_model)
     if mode == "sft":
         return SFTExtractor(model_dir=settings.sft_model_dir)
+    if mode == "modal":
+        return ModalRemoteExtractor(
+            endpoint_url=settings.modal_endpoint_url,
+            timeout=settings.modal_timeout,
+        )
     raise InferenceError(f"Unknown INFERENCE_MODE={mode!r}")

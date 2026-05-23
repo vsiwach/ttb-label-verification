@@ -11,7 +11,8 @@ API      ?= http://localhost:8000/api
 PORT     ?= 8000
 
 .PHONY: help install install-sft test eval-synth eval-real eval-replay-qwen \
-        serve-mock serve-cloud serve-max serve-sft-qwen \
+        serve-mock serve-cloud serve-max serve-sft-qwen serve-modal \
+        modal-deploy modal-upload-adapter \
         build-eval-data clean
 
 help:
@@ -27,6 +28,9 @@ help:
 	@echo "  serve-cloud     Run backend in cloud mode (reads backend/.env; pay-per-token API)"
 	@echo "  serve-max       Run backend via Claude Code CLI (uses Max subscription, no API key)"
 	@echo "  serve-sft-qwen  Run backend with the local Qwen2.5-VL LoRA adapter (no network)"
+	@echo "  serve-modal     Run backend routing inference to a Modal-hosted Qwen endpoint"
+	@echo "  modal-deploy    Deploy backend/modal_deploy/serve_qwen.py to Modal"
+	@echo "  modal-upload-adapter  Upload trained LoRA adapter to Modal's persistent volume"
 	@echo "  clean           Remove caches"
 
 install:
@@ -86,6 +90,24 @@ serve-max:
 serve-sft-qwen:
 	cd backend && INFERENCE_MODE=sft SFT_MODEL_DIR=models/qwen2_5_vl_7b ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
+
+# Routes extraction to a Modal-hosted Qwen endpoint. No GPU or heavy ML deps
+# locally; the backend just makes HTTPS calls. Reads MODAL_ENDPOINT_URL from
+# backend/.env (set after `modal deploy backend/modal_deploy/serve_qwen.py`).
+serve-modal:
+	cd backend && set -a && . ./.env && set +a && INFERENCE_MODE=modal ANTHROPIC_API_KEY="" \
+	    ../$(UVICORN) app.main:app --reload --port $(PORT)
+
+# Deploy Qwen to Modal. One-time: `pip install modal && modal token new`.
+# After deploy, copy the printed URL into backend/.env as MODAL_ENDPOINT_URL.
+modal-deploy:
+	modal deploy backend/modal_deploy/serve_qwen.py
+
+# Upload the trained LoRA adapter to Modal's persistent volume.
+# Idempotent — re-running with new weights overwrites the volume contents.
+modal-upload-adapter:
+	modal volume create ttb-qwen-adapter 2>/dev/null || true
+	modal volume put --force ttb-qwen-adapter backend/models/qwen2_5_vl_7b/adapter /adapter
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
