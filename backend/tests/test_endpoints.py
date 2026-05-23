@@ -94,7 +94,8 @@ def test_verify_scenario_B_stones_throw(client):
     by_name = {f["fieldName"]: f for f in body["fields"]}
     # Brand case-only differences are 'match' under the permissive brand rule.
     assert by_name["Brand name"]["status"] == "match"
-    assert by_name["Net contents"]["status"] == "flag"
+    # 750 mL vs 700 mL = 6.7% → 'likely' under graduated net-contents tolerance.
+    assert by_name["Net contents"]["status"] == "likely"
     assert all(f["regulationCite"] == "27 CFR 4.32" for f in body["fields"])
 
 
@@ -122,9 +123,10 @@ def test_verify_batch_groups(client):
     arr = r.json()
     assert len(arr) == 3
     groups = {item["group"] for item in arr}
-    # Scenario A is auto-pass; B (net contents flag) and C (warning violation)
-    # are both needs-review.
-    assert groups == {"auto-pass", "needs-review"}
+    # Scenario A is auto-pass; B (net 6.7% delta on a standard fill) is now
+    # 'needs-confirm' under the graduated net-contents tolerance; C (warning
+    # violation: paraphrased + non-all-caps heading) is 'needs-review'.
+    assert groups == {"auto-pass", "needs-confirm", "needs-review"}
     for item in arr:
         assert "id" in item and "fileName" in item and "thumbnailUrl" in item
         assert item["thumbnailUrl"].startswith("data:image/svg+xml")

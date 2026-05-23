@@ -75,13 +75,22 @@ def test_scenario_B_stones_throw_likely_and_flag():
     r = verify(extracted, app)
     by_name = {f.fieldName: f for f in r.fields}
     # Brand: case-only differences (STONE'S THROW vs Stone's Throw) → match
-    # under the brand-permissive engine (TTB doesn't gate on stylistic casing).
+    # under the brand-permissive engine.
     assert by_name["Brand name"].status == "match"
     assert by_name["Class & type"].status == "match"
-    assert by_name["Net contents"].status == "flag"  # 750 mL vs 700 mL → still a flag
-    assert by_name["Bottler name/address"].status == "likely"  # state abbrev
+    # 750 mL vs 700 mL is a 6.7% delta — under the graduated net-contents
+    # tolerance that's 'likely' (border zone; agent verifies it's not OCR slop)
+    # rather than 'flag' (>15% substantive divergence).
+    assert by_name["Net contents"].status == "likely"
+    # Bottler 'Valley Crest Winery, Sonoma, California' vs '...Sonoma, CA' resolves
+    # to 'match' under the permissive bottler classifier (state-abbrev on the same
+    # business). Stone's Throw extracted bottler line is similarly tolerant.
+    assert by_name["Bottler name/address"].status == "match"
+    # Overall bucket: 'likely' on net contents → needs-confirm (was 'flag'→
+    # needs-review under the old binary tolerance).
     assert all(f.regulationCite == "27 CFR 4.32" for f in r.fields)
-    assert group_for(r) == "needs-review"  # because of the flag
+    # Overall bucket: net=likely → needs-confirm under graduated tolerance.
+    assert group_for(r) == "needs-confirm"
 
 
 # ── Scenario C — beer, three Government Warning deviations → needs-review ────
@@ -458,6 +467,172 @@ def test_imported_country_of_origin_with_product_of_prefix_is_match():
     coo = next((f for f in r.fields if f.fieldName == "Country of origin"), None)
     assert coo is not None and coo.status == "match"
     assert group_for(r) == "auto-pass"
+
+
+def test_bottler_label_contains_brand_is_match():
+    """Real bottler lines on labels contain much more than the COLA form's
+    bottler field. 'Half Acre, Illinois' (form) vs 'BREWED BY HALF ACRE IN
+    CHICAGO, ILLINOIS' (label) should be a match — TTB doesn't reject for
+    extra address detail."""
+    app = ApplicationData(
+        brandName="Half Acre", classType="beer",
+        alcoholContent="", netContents="12 FL OZ",
+        bottlerNameAddress="Half Acre, Illinois", beverageType="beer",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("Half Acre", 0.99),
+            "Class & type":        ExtractedField("New Zealand Style Pilsner", 0.96),
+            "Net contents":        ExtractedField("12 FL OZ", 0.99),
+            "Bottler name/address": ExtractedField("BREWED BY HALF ACRE IN CHICAGO, ILLINOIS", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    bottler = next(f for f in r.fields if f.fieldName == "Bottler name/address")
+    assert bottler.status == "match"
+
+
+def test_bottler_completely_different_entity_still_flagged():
+    """A bottler line with a wholly different business name should still flag."""
+    app = ApplicationData(
+        brandName="Half Acre", classType="beer",
+        alcoholContent="", netContents="12 FL OZ",
+        bottlerNameAddress="Half Acre Beer Co", beverageType="beer",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("Half Acre", 0.99),
+            "Class & type":        ExtractedField("Pilsner", 0.96),
+            "Net contents":        ExtractedField("12 FL OZ", 0.99),
+            "Bottler name/address": ExtractedField("SRG SENIOR LIVING LLC", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    bottler = next(f for f in r.fields if f.fieldName == "Bottler name/address")
+    assert bottler.status == "flag"
+
+
+def test_abv_within_per_beverage_tolerance_is_match():
+    """Spirits ABV ±0.3% is match (27 CFR 5.65 allows ±0.15%; we use 0.3 to
+    absorb model rounding from label OCR)."""
+    app = ApplicationData(
+        brandName="Old Tom", classType="bourbon",
+        alcoholContent="45% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Old Tom Distillery, Frankfort, KY",
+        beverageType="spirits",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("Old Tom", 0.99),
+            "Class & type":        ExtractedField("Bourbon Whiskey", 0.96),
+            "Alcohol content":     ExtractedField("45.2% Alc./Vol.", 0.96),  # +0.2 within tolerance
+            "Net contents":        ExtractedField("750 mL", 0.99),
+            "Bottler name/address": ExtractedField("Old Tom Distillery, Frankfort, KY", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    abv = next(f for f in r.fields if f.fieldName == "Alcohol content")
+    assert abv.status == "match"
+
+
+def test_abv_close_but_outside_tolerance_is_likely_not_flag():
+    """Wine ABV difference between 0.5 and 1.5% is 'likely' (agent confirms)
+    rather than 'flag' (substantive violation). 13.5% vs 14.5% → likely."""
+    app = ApplicationData(
+        brandName="Test Wine", classType="table red wine",
+        alcoholContent="13.5% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Test", beverageType="wine",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("Test Wine", 0.99),
+            "Class & type":        ExtractedField("Pinot Noir", 0.96),
+            "Alcohol content":     ExtractedField("14.5% Alc./Vol.", 0.96),  # +1.0 within likely
+            "Net contents":        ExtractedField("750 mL", 0.99),
+            "Bottler name/address": ExtractedField("Test", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    abv = next(f for f in r.fields if f.fieldName == "Alcohol content")
+    assert abv.status == "likely"
+
+
+def test_abv_substantive_difference_still_flags():
+    """5% vs 99% is well beyond likely-tolerance and still flags."""
+    app = ApplicationData(
+        brandName="Test", classType="bourbon",
+        alcoholContent="5% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Test", beverageType="spirits",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("Test", 0.99),
+            "Class & type":        ExtractedField("Bourbon", 0.96),
+            "Alcohol content":     ExtractedField("99% Alc./Vol.", 0.96),
+            "Net contents":        ExtractedField("750 mL", 0.99),
+            "Bottler name/address": ExtractedField("Test", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    abv = next(f for f in r.fields if f.fieldName == "Alcohol content")
+    assert abv.status == "flag"
+
+
+def test_net_contents_within_2_percent_on_standard_fill_is_match():
+    """Standard fills (750 mL etc.) use a tighter 2% tolerance. Within that
+    band, OCR rounding doesn't false-flag."""
+    app = ApplicationData(
+        brandName="Test", classType="bourbon",
+        alcoholContent="45% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Test", beverageType="spirits",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("Test", 0.99),
+            "Class & type":        ExtractedField("Bourbon", 0.96),
+            "Alcohol content":     ExtractedField("45% Alc./Vol.", 0.96),
+            "Net contents":        ExtractedField("740 mL", 0.99),  # 1.3% off, within 2%
+            "Bottler name/address": ExtractedField("Test", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    net = next(f for f in r.fields if f.fieldName == "Net contents")
+    assert net.status == "match"
+
+
+def test_net_contents_border_tolerance_is_likely():
+    """6-10% net-contents delta is 'likely' (agent verifies it's not an
+    intentional fill change), not 'flag'."""
+    app = ApplicationData(
+        brandName="Test", classType="beer",
+        alcoholContent="", netContents="12 FL OZ",
+        bottlerNameAddress="Test", beverageType="beer",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("Test", 0.99),
+            "Class & type":        ExtractedField("Pilsner", 0.96),
+            "Net contents":        ExtractedField("11 FL OZ", 0.99),  # 8.3% delta
+            "Bottler name/address": ExtractedField("Test", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    net = next(f for f in r.fields if f.fieldName == "Net contents")
+    assert net.status == "likely"
 
 
 def test_imported_product_requires_country_of_origin():

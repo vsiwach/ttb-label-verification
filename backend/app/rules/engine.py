@@ -30,18 +30,28 @@ import re as _re
 # a known umbrella is a match, not a flag.
 _UMBRELLA_CLASSES = {
     # Beer/malt umbrellas
-    "beer", "ale", "stout", "porter", "lager", "malt beverage",
+    "beer", "ale", "stout", "porter", "lager", "pilsner", "malt beverage",
     "malt beverages specialities", "malt beverages specialities - flavored",
+    "ipa", "india pale ale",
     # Wine umbrellas
     "wine", "table wine", "table red wine", "table white wine", "rose wine",
     "table flavored wine", "sparkling wine", "sparkling wine/champagne",
     "dessert /port/sherry/(cooking) wine", "fortified wine",
-    "honey based table wine", "cider",
+    "honey based table wine", "cider", "perry", "mead",
+    "grape wine", "fruit wine", "specialty wine",
     # Spirits umbrellas
     "distilled spirits", "spirits", "whisky", "whiskey",
-    "whisky specialties", "vodka", "vodka specialties", "gin", "rum",
-    "tequila", "tequila fb", "mezcal", "mezcal fb", "brandy", "liqueur",
-    "other whisky", "other whisky (flavored)", "other specialties & proprietaries",
+    "whisky specialties", "whiskey specialties",
+    "vodka", "vodka 80-89 proof", "vodka specialties",
+    "gin", "rum", "agave spirits",
+    "tequila", "tequila fb", "mezcal", "mezcal fb",
+    "brandy", "cognac", "liqueur", "cordial", "schnapps",
+    "other whisky", "other whisky (flavored)",
+    "other specialties & proprietaries", "neutral spirits",
+    "straight whisky", "straight whiskey", "bourbon whisky", "bourbon whiskey",
+    "rye whisky", "rye whiskey",
+    # Cider / RTD
+    "hard cider", "fruit cider",
 }
 
 # A model confidence below this on a 'match' verdict promotes to 'likely' —
@@ -61,6 +71,64 @@ def _abv_percent(s: str) -> float | None:
         return None
     m = _re.search(r"([0-9]+(?:\.[0-9]+)?)\s*%", s)
     return float(m.group(1)) if m else None
+
+
+# Per-beverage ABV tolerance (absolute % delta) — TTB allows variation
+# between the stated and actual ABV in 27 CFR. Within tolerance the
+# difference is informational (match); just outside is 'likely' (agent
+# confirms); a substantive divergence is a flag.
+# Source citations:
+#   - Spirits 27 CFR 5.65(d): tolerance ±0.15% (we use a slightly wider
+#     0.3 to absorb model-rounding from the label).
+#   - Wine    27 CFR 4.36(b): ±1.0% for wines >14% ABV, ±1.5% for ≤14% ABV
+#     (we use 0.5% to stay strict on consumer-facing reads).
+#   - Malt    27 CFR 7.65: ±0.3% for beer (when stated).
+_ABV_MATCH_TOLERANCE = {
+    "spirits": 0.30,
+    "wine":    0.50,
+    "beer":    0.30,
+    "malt":    0.30,
+}
+# Within this wider band we still consider it 'likely' (needs-confirm), not flag.
+_ABV_LIKELY_TOLERANCE = {
+    "spirits": 1.0,
+    "wine":    1.5,
+    "beer":    1.0,
+    "malt":    1.0,
+}
+
+
+def _classify_abv(declared: str, extracted: str, beverage_type: str):
+    """Numeric percent comparison with per-beverage tolerance."""
+    from .field_match import FieldVerdict, classify_field
+
+    pd, pe = _abv_percent(declared), _abv_percent(extracted)
+    if pd is None or pe is None:
+        return classify_field(declared, extracted)
+
+    diff = abs(pd - pe)
+    match_tol = _ABV_MATCH_TOLERANCE.get(beverage_type, 0.3)
+    likely_tol = _ABV_LIKELY_TOLERANCE.get(beverage_type, 1.0)
+
+    if diff <= match_tol:
+        return FieldVerdict(
+            status="match",
+            normalized_declared=f"{pd}%", normalized_extracted=f"{pe}%",
+            similarity=1.0,
+        )
+    if diff <= likely_tol:
+        return FieldVerdict(
+            status="likely",
+            normalized_declared=f"{pd}%", normalized_extracted=f"{pe}%",
+            similarity=0.9,
+            note=f"ABV differs by {diff:.1f}% (declared {pd}% vs label {pe}%) — within agent-review tolerance.",
+        )
+    return FieldVerdict(
+        status="flag",
+        normalized_declared=f"{pd}%", normalized_extracted=f"{pe}%",
+        similarity=0.0,
+        note=f"ABV differs by {diff:.1f}% — declared {pd}% vs label {pe}% — beyond TTB tolerance for {beverage_type}.",
+    )
 
 
 # Common business-name suffixes / qualifiers labels routinely drop or add.
@@ -205,6 +273,114 @@ def _normalize_country_of_origin(extracted: str) -> str:
     return out
 
 
+def _classify_bottler(declared: str, extracted: str, *, brand_name: str = ""):
+    """Bottler/producer name & address — permissive.
+
+    Real bottler lines printed on labels routinely contain MUCH more than
+    the COLA form's bottler field. Typical patterns:
+      declared:  'Half Acre, Illinois'
+      extracted: 'BREWED BY HALF ACRE IN CHICAGO, ILLINOIS'
+
+      declared:  'Cremisan'
+      extracted: 'Imported by Cremisan Wines, Brooklyn, NY'
+
+    TTB doesn't reject for extra detail on the printed bottler line; the
+    requirement is that a bottler/producer name + address actually appear.
+    So we treat it as `match` whenever the extracted line CONTAINS the
+    declared bottler OR the brand name. Otherwise fall back to the
+    generic classifier — substantive differences (totally different
+    business entity) still flag.
+    """
+    from .field_match import FieldVerdict, _strict_normalize, classify_field
+
+    if not extracted:
+        return classify_field(declared, extracted)
+
+    e_norm = _brand_normalize(extracted)
+    d_norm = _brand_normalize(declared)
+    b_norm = _brand_normalize(brand_name)
+
+    # If the bottler line contains the declared bottler text → match.
+    if d_norm and (d_norm in e_norm or e_norm in d_norm):
+        return FieldVerdict(
+            status="match", normalized_declared=d_norm, normalized_extracted=e_norm,
+            similarity=1.0,
+            note=None if _strict_normalize(declared) == _strict_normalize(extracted) else
+                 "Bottler line on the label contains the registered bottler with additional address detail.",
+        )
+
+    # If the bottler line contains the registered BRAND name → match.
+    # (TTB-registered bottler IS often the brewery; printed line shows it
+    # spelled out with city/state/plant info.)
+    if b_norm and b_norm in e_norm:
+        return FieldVerdict(
+            status="match", normalized_declared=d_norm, normalized_extracted=e_norm,
+            similarity=0.95,
+            note=f"Label's bottler line references the registered brand '{brand_name}'.",
+        )
+
+    # Otherwise generic comparison — different business entity should still flag.
+    return classify_field(declared, extracted)
+
+
+# Standard-fill volumes (mL) per 27 CFR 4.72 (wine), 5.47a (spirits),
+# 7.27 (malt). A label printed within ±2% of these is exactly the
+# regulated fill; this lets us be stricter than the generic ±5% tolerance
+# when the declared volume is a standard fill, because real labels at
+# 750 mL hit 750 mL exactly (the model occasionally reads 745 or 752 due
+# to OCR — within ±2% is fine).
+_STANDARD_FILLS_ML = (
+    50, 100, 187, 200, 250, 330, 355, 375, 500, 700, 720, 750,
+    1000, 1500, 1750, 1893, 3000,  # mL standards
+    # Beer fluid-ounce standards:
+    340, 355, 473, 568, 650, 710, 946,
+    # Spirits half-gallon, gallon (rarely on labels but possible):
+    1893, 3785,
+)
+
+
+def _is_standard_fill(ml: float) -> bool:
+    return any(abs(ml - s) / s <= 0.03 for s in _STANDARD_FILLS_ML)
+
+
+def _classify_net_contents(declared: str, extracted: str):
+    """Net contents — semantic mL comparison with a graduated tolerance:
+      - within 2% of declared, AND the declared is a standard fill → match
+        (sharp tolerance on regulated container sizes)
+      - within 5% otherwise → match (handles multi-unit print + rounding)
+      - within 10% → likely (border-tolerance; agent confirms)
+      - else → flag (substantive content difference, e.g. 750 mL vs 500 mL)
+    """
+    from .field_match import FieldVerdict, classify_field
+
+    ml_d = parse_net_contents_to_ml(declared)
+    ml_e = parse_net_contents_to_ml(extracted)
+    if ml_d is None or ml_e is None or ml_d <= 0:
+        return classify_field(declared, extracted)
+
+    delta = abs(ml_d - ml_e) / max(ml_d, ml_e)
+    standard = _is_standard_fill(ml_d)
+    if delta <= (0.02 if standard else 0.05):
+        return FieldVerdict(
+            status="match",
+            normalized_declared=f"{ml_d:.0f} mL", normalized_extracted=f"{ml_e:.0f} mL",
+            similarity=1.0,
+        )
+    if delta <= 0.10:
+        return FieldVerdict(
+            status="likely",
+            normalized_declared=f"{ml_d:.0f} mL", normalized_extracted=f"{ml_e:.0f} mL",
+            similarity=0.9,
+            note=f"Net contents differs by {delta:.1%} ({ml_d:.0f} mL declared vs {ml_e:.0f} mL on label) — within border-tolerance, agent confirms.",
+        )
+    return FieldVerdict(
+        status="flag",
+        normalized_declared=f"{ml_d:.0f} mL", normalized_extracted=f"{ml_e:.0f} mL",
+        similarity=0.0,
+        note=f"Net contents differs by {delta:.1%}; substantive content difference.",
+    )
+
+
 def _classify_country_of_origin(declared: str, extracted: str):
     """COO comparison tolerant of: foreign-language prefixes, dual-language
     displays, and the printed country appearing anywhere in the extracted
@@ -347,37 +523,15 @@ def verify(
                 note="Form declared an umbrella class; label's specific designation is consistent.",
             )
         elif spec.label_name == "Alcohol content":
-            # Compare numeric percent (within 0.1) — formats vary ("% Alc./Vol.",
-            # "% ABV", "% by volume", "Proof") but the percentage is what matters.
-            pd, pe = _abv_percent(declared), _abv_percent(extracted_value)
-            if pd is not None and pe is not None and abs(pd - pe) <= 0.1:
-                from .field_match import FieldVerdict
-                verdict = FieldVerdict(
-                    status="match",
-                    normalized_declared=f"{pd}%", normalized_extracted=f"{pe}%",
-                    similarity=1.0,
-                )
-            else:
-                verdict = classify_field(declared, extracted_value)
+            # Per-beverage ABV tolerance — within 27 CFR-stated tolerance is match,
+            # outside-but-close is 'likely' (needs-confirm), substantive is flag.
+            verdict = _classify_abv(declared, extracted_value, app.beverageType)
         elif spec.label_name == "Net contents":
-            # Real labels often print multi-unit displays ('12L 40.5 fl oz 2.53 pint');
-            # COLA carries a single unit. Compare semantically when both parse.
-            ml_d = parse_net_contents_to_ml(declared)
-            ml_e = parse_net_contents_to_ml(extracted_value)
-            if ml_d is not None and ml_e is not None and ml_d > 0:
-                if abs(ml_d - ml_e) / max(ml_d, ml_e) <= 0.05:
-                    # Numeric volumes within 5% — treat as match regardless of unit display.
-                    from .field_match import FieldVerdict
-                    verdict = FieldVerdict(
-                        status="match",
-                        normalized_declared=f"{ml_d:.0f} mL",
-                        normalized_extracted=f"{ml_e:.0f} mL",
-                        similarity=1.0,
-                    )
-                else:
-                    verdict = classify_field(declared, extracted_value)
-            else:
-                verdict = classify_field(declared, extracted_value)
+            # Graduated tolerance: 2% on standard fills, 5% otherwise, 10% border.
+            verdict = _classify_net_contents(declared, extracted_value)
+        elif spec.label_name == "Bottler name/address":
+            # Permissive — extracted line containing declared bottler OR brand → match.
+            verdict = _classify_bottler(declared, extracted_value, brand_name=app.brandName)
         else:
             verdict = classify_field(declared, extracted_value)
 

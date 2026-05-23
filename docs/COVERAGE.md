@@ -18,13 +18,33 @@ happens in the engine.
 ## Severity model — not every difference is a violation
 
 TTB itself doesn't treat every label-vs-application delta equally. The engine
-classifies differences into three severities that drive the verdict bucket:
+classifies differences into three severities that drive the verdict bucket.
+The classifier for each field is tuned to match TTB practice: graduated
+tolerances calibrated to 27 CFR-stated allowances where they exist, or to
+real-world COLA review behavior where the regulation is silent.
+
+### Per-field severity ladder
+
+| Field | `match` (auto-pass-able) | `likely` (needs-confirm) | `flag` (needs-review) |
+|---|---|---|---|
+| **Brand name** | Case-folded equal after suffix-strip (`Imported Beer`, `Brewing Co`, `Vineyards`, `LLC`); OR matches the COLA form's `productName` (Fanciful Name) | Shortened/extended form of either brand or product (`Suprema` vs `Suprema Imported Beer`) | Substantively different name AND no product match |
+| **Class & type** | Strict equal OR declared is an umbrella COLA code (`beer`, `table red wine`, `whisky specialties` — 50+ codes) matching any specific designation | Similarity ≥ 0.85 | Substantive mismatch |
+| **Alcohol content** | Numeric % within 27 CFR tolerance: spirits ±0.3, wine ±0.5, beer/malt ±0.3 (27 CFR 5.65 / 4.36 / 7.65) | Within wider agent-review band: spirits ±1.0, wine ±1.5, beer ±1.0 | Beyond agent-review band |
+| **Net contents** | Same volume after parsing to mL — within 2% on a standard fill (50, 100, 187, 200, 250, 330, 355, 375, 500, 700, 720, 750, 1000, 1500, 1750, 3000 mL; 12, 16 FL OZ etc.), 5% otherwise | 5-10% delta — possible misfill, agent verifies | >10% delta — substantive content difference |
+| **Bottler name/address** | Label line CONTAINS the declared bottler OR the registered brand — extra detail (address, plant info) is informational, not violation | Brand-normalized similarity | Wholly different business entity |
+| **Country of origin** | Country name appears as a word after stripping multilingual prefixes (`Product of / Produit de / Hecho en / Prodotto in / Erzeugnis aus / Feito em`) including dual-language displays; native aliases (`italia ≡ italy`) | Similarity match | Different country |
+| **Government Warning verbatim** | Exact match after OCR-noise normalization (whitespace, punctuation spacing, hyphenation), case-insensitive | Near-verbatim (≥95% similarity — single-char OCR slip) → records `verbatimMatch=True` + `near_verbatim` advisory deviation | Below 95% similarity — substantive paraphrase |
+| **Warning casing/bold** | `casing_all_caps=True AND body_bold=False` | — | `casing_all_caps=False` OR body bolded |
+| **Warning font size** | Measured height ≥ 27 CFR 16.22 minimum (1mm/2mm/3mm by container) | Unmeasurable from a single image — "please confirm manually" + threshold cited | Measured below minimum |
+
+### Verdict-bucket logic
 
 | Severity | Definition | What the engine does | Examples |
 |---|---|---|---|
-| **Critical** | Substantive non-compliance with 27 CFR | `flag` → `needs-review` | Mandatory field absent from label; Government Warning paraphrased or missing; spirits/wine with no ABV at all |
-| **Material** | Substantively wrong declared value | `flag` → `needs-review` | Net contents 750 mL declared vs 700 mL printed; ABV 45% declared vs 5% printed; brand AND product both differ from label |
-| **Informational** | Stylistic / format / multi-image realities | `match` or `likely` → max `needs-confirm`, never `needs-review` | Brand printed in ALL CAPS; "KY" abbreviation; "Product of France" prefix; bottler line not in COLA form; ABV/net visible on another panel |
+| **Critical** | Substantive non-compliance with 27 CFR | `flag` → `needs-review` | Mandatory field absent from label; Government Warning paraphrased or missing |
+| **Material** | Substantively wrong declared value beyond regulatory tolerance | `flag` → `needs-review` | Net contents >10% off; ABV outside the wider agent-review band; brand AND product both differ from label |
+| **Borderline** | Within regulatory or border tolerance | `likely` → `needs-confirm` (agent verifies in seconds) | ABV 0.3-1.5% off; net contents 5-10% off; near-verbatim warning with single-char OCR slip |
+| **Informational** | Stylistic / format / multi-image realities | `match` → `auto-pass`-able | Brand in ALL CAPS; "KY" abbreviation; "Product of France" prefix; bottler line with extra address detail; class-type umbrella matching |
 
 **The pre-processing pipeline that makes this work** (it's where most of the
 "clean approved → false flag" pressure was relieved):

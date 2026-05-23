@@ -36,6 +36,32 @@ cloud-mode backend across the categories in `test/TEST_PLAN.md`:
 | **I** Imports + COO | imported COLAs | 15 | 6/15 warning false-flags + 3/15 COO false-flags from foreign-language prefixes (`Produit de`, `Hecho en`) |
 | **M** Multi-image | front vs back paired | 10+10 | 10/10 back panels carry the warning, 9/10 fronts don't — confirms back-prefer logic |
 
+### Per-field severity tiering (round 2)
+
+After the multi-agent diagnostic landed the first 4 fixes, a follow-up round
+added per-field severity ladders so only TTB-violation-worthy differences
+route to needs-review. The before-vs-after on the same 20 random clean
+approved labels (seed=7, Agent W diagnostic):
+
+| | Original | After 4 fixes | After tier model |
+|---|---|---|---|
+| Auto-pass | 5% | 35% | **35%** |
+| Needs-confirm | 30% | 20% | 30% |
+| Needs-review (false-positive) | **65%** | 45% | **35%** |
+
+Each field now has graduated thresholds (see `docs/COVERAGE.md` §Per-field
+severity ladder):
+
+- **ABV**: per-beverage tolerance per 27 CFR 5.65 / 4.36 / 7.65. Spirits ±0.3
+  → match; ±1.0 → likely; beyond → flag.
+- **Net contents**: 2% on standard fills (50, 100, 187, 200, 250, 330, 355,
+  375, 500, 700, 720, 750, 1000, 1500, 1750, 3000 mL + standard FL OZ), 5%
+  otherwise → match; 5-10% → likely; >10% → flag.
+- **Bottler**: label-line contains declared bottler OR registered brand →
+  match (extra address detail is informational); else generic compare.
+- **Class & type**: expanded umbrella list — now 50+ COLA codes matching
+  any printed sub-designation.
+
 ### FIVE fixes applied (each locked in by a unit test)
 
 1. **Brand: case-only differences → `match`** (was `likely`).
