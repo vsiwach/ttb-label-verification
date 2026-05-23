@@ -8,7 +8,7 @@
 > never silently auto-passed.
 
 The deterministic 27 CFR rules engine is exhaustively unit-tested
-(62 tests in `backend/tests/`). It is the legal core. The cloud / mock /
+(69 tests in `backend/tests/`). It is the legal core. The cloud / mock /
 on-prem inference adapter ONLY reads the label and reports observations;
 every match / likely / flag decision and every Government Warning verdict
 happens in the engine.
@@ -38,7 +38,8 @@ at least `likely`.
 |---|---|---|
 | Identical printed text | `match` | strict-normalized equality (whitespace + smart-quotes + Unicode) |
 | Smart quotes / typographic punctuation | `match` | `’ → '`, `“” → "`, `– — → -` before comparison |
-| Casing differences (e.g. `STONE'S THROW` vs `Stone's Throw`) | `likely` | strict-equal fails; loose-equal (case-folded) succeeds |
+| Casing differences (e.g. `STONE'S THROW` vs `Stone's Throw`) | `likely` (generic fields) / `match` (Brand name field) | strict-equal fails; loose-equal succeeds. Brand-name casing differences are stylistic and routinely caused by labels printing in caps for prominence — those resolve to match. |
+| Brand with common business suffix dropped on label (`Suprema Imported Beer` vs `SUPREMA`) | `match` | brand-normalizer strips suffixes like `Imported Beer / Brewing Co / Vineyards / LLC` before comparison |
 | Punctuation-only deltas (`12 FL OZ` vs `12 FL. OZ.`) | `likely` | trailing-punctuation strip + loose equality |
 | State name vs abbreviation in addresses | `likely` | similarity threshold ≥ 0.85 after normalization |
 | Net contents: same volume in different unit display | `match` | parse both sides to mL; within 5% = match (e.g. `1 PINT (16 FL OZ)` vs `1 pints`) |
@@ -50,6 +51,8 @@ at least `likely`.
 | Brand: completely different name | `flag` | strict + loose unequal, containment requires ≥60% length match, similarity < 0.85 |
 | Brand: brand name embedded in longer fanciful text | `flag` (tightened) | short declared inside long unrelated extracted is substantive content difference |
 | Country of origin with `Product of / Imported from / Made in / Bottled in / Distilled in` prefix | `match` | prefix strip + case-fold |
+| Country of origin in another language (`Produit de France`, `Hecho en Mexico`, `Prodotto in Italia`, `Erzeugnis aus Deutschland`, `Feito em Portugal`) | `match` | multilingual prefix list (en/fr/es/it/de/pt) + native country aliases (`italia ≡ italy`, `españa ≡ spain`) |
+| Country of origin in dual-language display (`PRODUIT DE FRANCE PRODUCT OF FRANCE`) | `match` | iterative prefix strip up to 3 layers, then word-level country search |
 
 ### Always flagged for human review
 
@@ -82,6 +85,7 @@ at least `likely`.
 |---|---|---|
 | **Presence** | `present` = false → `needs-review` with citation | 16.21 |
 | **Verbatim wording** | Normalized text (whitespace collapse, line-break-hyphen reattach, OCR punctuation-spacing tightening) case-insensitively compared to the canonical text | 16.21 |
+| **Near-verbatim wording (≥95% similarity)** | Detected text is *almost* canonical — typically a single-character OCR slip (missing comma, "operte" for "operate") rather than paraphrase. The engine sets `verbatimMatch=True` with a `near_verbatim` advisory deviation so the agent verifies visually; the verdict isn't auto-promoted to needs-review for a transcription slip. Real paraphrase (substantive wording change) drops below 0.95 and produces `verbatim=False`. | 16.21 |
 | **`GOVERNMENT WARNING` in all caps** | `casing_all_caps=False` → `casingBoldOk=False`, deviation type `casing` | 16.22 |
 | **Body NOT bold** | `body_bold=True` → deviation type `casing` | 16.22 |
 | **Type-size threshold by container** | `≤237 mL → 1 mm; ≤3 L → 2 mm; >3 L → 3 mm`. If measurable and below threshold → `fontSize` deviation; if **not measurable** → `fontSize=False` **with explicit "could not be measured; please confirm manually" note** (route to human review, not a hard reject) | 16.22 |

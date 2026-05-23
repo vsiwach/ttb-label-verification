@@ -16,10 +16,46 @@ review.
 
 | Gate | Result |
 |---|---|
-| Rules-engine unit tests | **62/62 ✅** |
+| Rules-engine unit tests | **69/69 ✅** |
 | Synthetic eval (9 fixtures, mock-mode integration gate) | **9/9 ✅** |
 
 Both run in plain `pytest`. The synthetic gate also runs as `make eval-synth`.
+
+---
+
+## Multi-agent diagnostic — root-cause sweep (Nov 2026)
+
+A team of 5 diagnostic agents ran 91 random real COLAs through the
+cloud-mode backend across the categories in `test/TEST_PLAN.md`:
+
+| Agent | Scope | n | Finding |
+|---|---|---|---|
+| **W** Warning | random clean approved | 20 | 5/6 warning false-flags were single-character OCR slips (missing comma, "operte" for "operate"), not real paraphrase |
+| **F** Field-match | random clean approved | 20 | 50% of all field issues are brand-vs-product or brand-case stylistic differences |
+| **B** Category coverage | TEST_PLAN §B (16 categories) | 16 | Same root causes across all categories; no category-specific failure mode |
+| **I** Imports + COO | imported COLAs | 15 | 6/15 warning false-flags + 3/15 COO false-flags from foreign-language prefixes (`Produit de`, `Hecho en`) |
+| **M** Multi-image | front vs back paired | 10+10 | 10/10 back panels carry the warning, 9/10 fronts don't — confirms back-prefer logic |
+
+### Four fixes applied (each locked in by a unit test)
+
+1. **Brand: case-only differences → `match`** (was `likely`).
+   COLA forms store brands in title case; real labels routinely print in ALL CAPS for prominence. That's stylistic, not substantive.
+2. **Brand: common business suffixes ignored** (`Imported Beer`, `Brewing Co`, `Vineyards`, `LLC`, etc.).
+   "Suprema Imported Beer" matches "SUPREMA"; "3rd Deck Brewing Co." matches "3RD DECK BREWING CO".
+3. **Warning: near-verbatim softening** (≥95% similarity).
+   Single-character OCR slips don't false-flag as paraphrase. The engine sets `verbatimMatch=True` with a `near_verbatim` advisory deviation so the agent verifies visually but the verdict isn't auto-promoted to needs-review. Real paraphrase (substantive wording change) still scores below 0.95 → `verbatim=False`.
+4. **COO: multilingual prefixes + dual-language displays**.
+   `Produit de`, `Hecho en`, `Producto de`, `Prodotto in`, `Erzeugnis aus`, `Feito em`, plus dual-language stripping for displays like `PRODUIT DE FRANCE PRODUCT OF FRANCE`.
+
+### Before-vs-after impact (same 40 random clean approved labels, same seeds)
+
+| Metric | Before fixes | After fixes | Δ |
+|---|---|---|---|
+| Warning false-flag rate | **15.0%** | **2.5%** | **−83%** |
+| Approved → auto-pass | 5% | **32%** | +27 pp |
+| Approved → needs-confirm | 38% | 22% | −16 pp |
+| Approved → needs-review (false-positive) | 57% | **45%** | −12 pp |
+| Imports → auto-pass (15) | 1 | **7** | +6 |
 
 ---
 

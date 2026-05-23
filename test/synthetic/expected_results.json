@@ -15,7 +15,7 @@
       "applicationData": { "brandName": "STONE'S THROW", "classType": "California Red Table Wine", "alcoholContent": "13.5% Alc./Vol.", "netContents": "750 mL", "bottlerNameAddress": "Stone's Throw Cellars, Sonoma, California", "beverageType": "wine" },
       "expected": {
         "group": "needs-review",
-        "fields": { "brand": "likely", "class": "match", "alcohol": "match", "net": "flag", "bottler": "match" },
+        "fields": { "brand": "match", "class": "match", "alcohol": "match", "net": "flag", "bottler": "match" },
         "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true }
       },
       "notes": "Label prints 'Stone's Throw' (case near-match -> likely) and '700 mL' (vs declared 750 mL -> flag)."

@@ -92,6 +92,40 @@ def test_title_case_paraphrased_small_warning_has_three_deviations():
     assert "fontSize" in kinds
 
 
+def test_near_verbatim_single_character_ocr_slip_is_compliant_with_advisory():
+    """Real labels often have a single missing comma or "operte" for "operate"
+    — these are OCR slips, not paraphrase. The engine should keep
+    verbatimMatch=True (so the bucket isn't routed to needs-review) and emit
+    a 'near_verbatim' advisory deviation so the agent verifies visually."""
+    # Missing comma after "general"
+    detected = (
+        "GOVERNMENT WARNING: (1) According to the Surgeon General women should not "
+        "drink alcoholic beverages during pregnancy because of the risk of birth defects. "
+        "(2) Consumption of alcoholic beverages impairs your ability to drive a car or "
+        "operate machinery, and may cause health problems."
+    )
+    a = analyze_warning(detected, present=True, style=_good_style(), container_ml=750.0)
+    assert a.verbatimMatch is True
+    kinds = [d.type for d in a.deviations]
+    assert "near_verbatim" in kinds
+    assert "wording" not in kinds  # not a substantive wording violation
+
+
+def test_paraphrase_still_caught_below_near_verbatim_threshold():
+    """Substantive paraphrase ('Drinking' instead of 'Consumption' / dropped
+    sentences) drops similarity below 95% and still produces verbatim=False
+    with a 'wording' deviation — paraphrase detection preserved."""
+    paraphrased = (
+        "Government Warning: (1) According to the Surgeon General, women should not "
+        "drink alcoholic beverages during pregnancy because of the risk of birth defects. "
+        "(2) Drinking alcoholic beverages impairs your ability to drive a car or operate "
+        "machinery and may cause health problems."
+    )
+    a = analyze_warning(paraphrased, present=True, style=_good_style(), container_ml=750.0)
+    assert a.verbatimMatch is False
+    assert any(d.type == "wording" for d in a.deviations)
+
+
 def test_missing_warning_flags_with_citation():
     a = analyze_warning(detected_text="", present=False, style=None, container_ml=750.0)
     assert a.present is False

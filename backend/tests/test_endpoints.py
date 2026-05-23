@@ -92,7 +92,8 @@ def test_verify_scenario_B_stones_throw(client):
     assert r.status_code == 200
     body = r.json()
     by_name = {f["fieldName"]: f for f in body["fields"]}
-    assert by_name["Brand name"]["status"] == "likely"
+    # Brand case-only differences are 'match' under the permissive brand rule.
+    assert by_name["Brand name"]["status"] == "match"
     assert by_name["Net contents"]["status"] == "flag"
     assert all(f["regulationCite"] == "27 CFR 4.32" for f in body["fields"])
 

@@ -74,9 +74,11 @@ def test_scenario_B_stones_throw_likely_and_flag():
     )
     r = verify(extracted, app)
     by_name = {f.fieldName: f for f in r.fields}
-    assert by_name["Brand name"].status == "likely"
+    # Brand: case-only differences (STONE'S THROW vs Stone's Throw) → match
+    # under the brand-permissive engine (TTB doesn't gate on stylistic casing).
+    assert by_name["Brand name"].status == "match"
     assert by_name["Class & type"].status == "match"
-    assert by_name["Net contents"].status == "flag"
+    assert by_name["Net contents"].status == "flag"  # 750 mL vs 700 mL → still a flag
     assert by_name["Bottler name/address"].status == "likely"  # state abbrev
     assert all(f.regulationCite == "27 CFR 4.32" for f in r.fields)
     assert group_for(r) == "needs-review"  # because of the flag
@@ -257,6 +259,128 @@ def test_umbrella_class_code_matches_specific_label_designation():
     cls = next(f for f in r.fields if f.fieldName == "Class & type")
     assert cls.status == "match"
     assert "umbrella" in (cls.note or "").lower()
+
+
+def test_brand_all_caps_label_is_match_not_likely():
+    """Real labels routinely print the brand in ALL CAPS while the COLA form
+    stores it in title case. That's a stylistic difference, not substantive."""
+    app = ApplicationData(
+        brandName="Weis Vineyards", classType="table white wine",
+        alcoholContent="11.8% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Weis Vineyards, NY", beverageType="wine",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("WEIS VINEYARDS", 0.99),
+            "Class & type":        ExtractedField("Riesling", 0.97),
+            "Alcohol content":     ExtractedField("11.8% Alc./Vol.", 0.96),
+            "Net contents":        ExtractedField("750 mL", 0.99),
+            "Bottler name/address": ExtractedField("Weis Vineyards, NY", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    brand = next(f for f in r.fields if f.fieldName == "Brand name")
+    assert brand.status == "match", f"got {brand.status}"
+
+
+def test_brand_with_business_suffix_dropped_is_match():
+    """'Suprema Imported Beer' (registered) vs 'SUPREMA' (printed) is the same
+    brand with a common business suffix dropped on the label."""
+    app = ApplicationData(
+        brandName="Suprema Imported Beer", classType="beer",
+        alcoholContent="", netContents="12 FL OZ",
+        bottlerNameAddress="Suprema Brewing, Mexico", beverageType="beer",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("SUPREMA", 0.95),
+            "Class & type":        ExtractedField("Beer", 0.95),
+            "Net contents":        ExtractedField("12 FL OZ", 0.95),
+            "Bottler name/address": ExtractedField("Suprema Brewing, Mexico", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    brand = next(f for f in r.fields if f.fieldName == "Brand name")
+    assert brand.status == "match"
+
+
+def test_brand_completely_different_still_flagged():
+    """Make sure we didn't make brand matching so loose it can't catch real
+    mismatches. 'Foursquare' (declared) vs 'EPILOGUE' (label) → flag."""
+    app = ApplicationData(
+        brandName="Foursquare", classType="aged rum",
+        alcoholContent="40% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Foursquare Distillery", beverageType="spirits",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("EPILOGUE", 0.95),
+            "Class & type":        ExtractedField("Aged Rum", 0.95),
+            "Alcohol content":     ExtractedField("40% Alc./Vol.", 0.95),
+            "Net contents":        ExtractedField("750 mL", 0.95),
+            "Bottler name/address": ExtractedField("Foursquare Distillery", 0.95),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    brand = next(f for f in r.fields if f.fieldName == "Brand name")
+    assert brand.status == "flag"
+
+
+def test_coo_dual_language_label_is_match():
+    """Real imports print COO in dual language: 'PRODUIT DE FRANCE PRODUCT OF FRANCE'.
+    Engine should strip both prefixes and match against declared 'France'."""
+    app = ApplicationData(
+        brandName="Vino Test", classType="table red wine",
+        alcoholContent="13% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Test, France", countryOfOrigin="France",
+        beverageType="wine",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("VINO TEST", 0.99),
+            "Class & type":        ExtractedField("Bordeaux Red Wine", 0.96),
+            "Alcohol content":     ExtractedField("13% Alc./Vol.", 0.95),
+            "Net contents":        ExtractedField("750 mL", 0.99),
+            "Bottler name/address": ExtractedField("Test, France", 0.94),
+            "Country of origin":   ExtractedField("PRODUIT DE FRANCE PRODUCT OF FRANCE", 0.97),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    coo = next(f for f in r.fields if f.fieldName == "Country of origin")
+    assert coo.status == "match"
+
+
+def test_coo_spanish_prefix_is_match():
+    """'HECHO EN MEXICO' (Spanish 'Made in Mexico') against declared 'Mexico'."""
+    app = ApplicationData(
+        brandName="Tequila Test", classType="tequila",
+        alcoholContent="40% Alc./Vol.", netContents="750 mL",
+        bottlerNameAddress="Test, Mexico", countryOfOrigin="Mexico",
+        beverageType="spirits",
+    )
+    extracted = ExtractedLabel(
+        fields={
+            "Brand name":          ExtractedField("TEQUILA TEST", 0.99),
+            "Class & type":        ExtractedField("Tequila", 0.96),
+            "Alcohol content":     ExtractedField("40% Alc./Vol.", 0.95),
+            "Net contents":        ExtractedField("750 mL", 0.99),
+            "Bottler name/address": ExtractedField("Test, Mexico", 0.94),
+            "Country of origin":   ExtractedField("HECHO EN MEXICO", 0.97),
+        },
+        warning_text=VERBATIM_GOVERNMENT_WARNING, warning_present=True,
+        warning_style=_good_style(),
+    )
+    r = verify(extracted, app)
+    coo = next(f for f in r.fields if f.fieldName == "Country of origin")
+    assert coo.status == "match"
 
 
 def test_imported_country_of_origin_with_product_of_prefix_is_match():

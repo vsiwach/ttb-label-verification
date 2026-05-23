@@ -53,6 +53,31 @@ def _verbatim_match(detected: str) -> bool:
     return _normalize_ocr_noise(detected).casefold() == _normalize_ocr_noise(VERBATIM_GOVERNMENT_WARNING).casefold()
 
 
+# When the detected text is *almost* identical to the canonical warning at this
+# character-level similarity, we treat the difference as OCR noise rather than
+# a substantive paraphrase. Real labels we see fail here with:
+#   - single missing comma ("surgeon general," -> "surgeon general")
+#   - "operate" misread as "operte"
+#   - missing period before "(2)"
+# These are model-transcription slips, not paraphrase. The agent verifies
+# visually; the engine records 'verbatimMatch=True' with a 'near_verbatim'
+# advisory deviation so the bucket isn't auto-promoted to needs-review.
+NEAR_VERBATIM_SIMILARITY = 0.95
+
+
+def _near_verbatim(detected: str) -> tuple[bool, float]:
+    """Return (is_near, similarity_ratio) after OCR-noise normalization +
+    case-fold. is_near is True iff the ratio >= NEAR_VERBATIM_SIMILARITY but
+    the strings aren't exactly equal."""
+    from difflib import SequenceMatcher
+    a = _normalize_ocr_noise(detected).casefold()
+    b = _normalize_ocr_noise(VERBATIM_GOVERNMENT_WARNING).casefold()
+    if not a or a == b:
+        return (False, 1.0 if a == b else 0.0)
+    ratio = SequenceMatcher(a=a, b=b).ratio()
+    return (ratio >= NEAR_VERBATIM_SIMILARITY, ratio)
+
+
 def analyze_warning(
     detected_text: str,
     present: bool,
@@ -81,13 +106,31 @@ def analyze_warning(
             ],
         )
 
-    # 1. Verbatim text
+    # 1. Verbatim text. If not an exact match, check whether the detected text
+    # is *near* verbatim (>= 95% similarity) — typical for OCR slips like a
+    # single missing comma or "operte" for "operate". We treat those as
+    # verbatim=True with an informational 'near_verbatim' advisory deviation,
+    # so the bucket isn't routed to needs-review for a transcription slip.
+    # True paraphrase / substantive wording changes still drop below 0.95 and
+    # produce verbatim=False with a 'wording' deviation.
     verbatim_ok = _verbatim_match(detected_text)
     if not verbatim_ok:
-        deviations.append(WarningDeviation(
-            type="wording",
-            message=f"Statement wording does not match the required verbatim text ({citation_for_warning('wording')}).",
-        ))
+        is_near, ratio = _near_verbatim(detected_text)
+        if is_near:
+            verbatim_ok = True  # bucket allows auto-pass on near-verbatim
+            deviations.append(WarningDeviation(
+                type="near_verbatim",
+                message=(
+                    f"Warning text closely matches the canonical statement ({ratio:.0%}) "
+                    f"but differs in minor characters likely due to OCR noise; please "
+                    f"verify visually ({citation_for_warning('wording')})."
+                ),
+            ))
+        else:
+            deviations.append(WarningDeviation(
+                type="wording",
+                message=f"Statement wording does not match the required verbatim text ({citation_for_warning('wording')}).",
+            ))
 
     # 2. Casing + bold. Bold weight cannot be reliably detected from a single
     # image at typical warning-text sizes, so the gate is the more reliable

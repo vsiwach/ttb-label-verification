@@ -63,18 +63,189 @@ def _abv_percent(s: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
+# Common business-name suffixes / qualifiers labels routinely drop or add.
+# When one side is the same brand minus one of these, treat as match.
+_BRAND_NOISE_TOKENS = {
+    "imported beer", "imported wine", "imported", "import",
+    "brewing co", "brewing company", "brewing", "brewery",
+    "vineyard", "vineyards", "winery", "wineries", "cellars",
+    "distillery", "distilleries", "distilling", "distillers",
+    "spirits", "company", "co", "co.", "inc", "inc.", "ltd", "ltd.",
+    "llc", "llp", "lp", "corp", "corp.", "corporation", "gmbh",
+    "soc agr srl", "srl", "s.a.s. de c.v.", "s.a.", "s.a", "s.r.l.",
+    "estate", "estates", "ranch", "farms", "farm", "cidery",
+    "the",
+}
+
+
+def _brand_normalize(s: str) -> str:
+    """Lowercase, strip diacritics/punctuation, collapse whitespace, drop common
+    business-name suffix tokens like 'Imported Beer', 'LLC', 'Brewing Co'."""
+    import re as _r
+    import unicodedata as _u
+    if not s:
+        return ""
+    s = _u.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not _u.combining(ch))
+    s = s.lower()
+    s = _r.sub(r"[^\w\s.]+", " ", s)
+    s = _r.sub(r"\s+", " ", s).strip()
+    # Iteratively strip trailing noise tokens
+    changed = True
+    while changed:
+        changed = False
+        for tok in sorted(_BRAND_NOISE_TOKENS, key=len, reverse=True):
+            if s == tok:
+                s = ""
+                changed = True; break
+            if s.endswith(" " + tok):
+                s = s[:-(len(tok) + 1)].strip()
+                changed = True; break
+        # Also strip leading 'the '
+        if s.startswith("the "):
+            s = s[4:].strip(); changed = True
+    return s
+
+
+def _classify_brand(declared: str, extracted: str):
+    """Brand-name comparison tuned for real-world stylistic realities.
+
+    Compared to the generic classifier:
+      - Case-only differences → 'match' (TTB-registered name in title case vs
+        the same name printed in all caps is a stylistic, not substantive,
+        difference). The PRD's STONE'S THROW-as-'likely' case is now also
+        treated this way — both sides resolve via the same engine.
+      - Common business suffixes are stripped before comparison
+        (e.g. 'Suprema Imported Beer' ≡ 'Suprema').
+      - Substantively different brands still produce 'flag'.
+    """
+    from .field_match import FieldVerdict, _strict_normalize, classify_field
+
+    d_norm = _brand_normalize(declared)
+    e_norm = _brand_normalize(extracted)
+
+    if not extracted:
+        return classify_field(declared, extracted)
+    if d_norm and e_norm and d_norm == e_norm:
+        return FieldVerdict(
+            status="match",
+            normalized_declared=d_norm,
+            normalized_extracted=e_norm,
+            similarity=1.0,
+            note=None if _strict_normalize(declared) == _strict_normalize(extracted) else
+                 "Brand name printed in different case / with different business suffix; same registered name.",
+        )
+    # Prefix containment: 'suprema' in 'suprema imported beer' or vice versa
+    if d_norm and e_norm and (d_norm in e_norm or e_norm in d_norm):
+        return FieldVerdict(
+            status="likely",
+            normalized_declared=d_norm,
+            normalized_extracted=e_norm,
+            similarity=0.9,
+            note="Brand name appears as a shortened/extended form on the label; please verify.",
+        )
+    # Fall back to the generic classifier (handles similarity + flag).
+    return classify_field(declared, extracted)
+
+
+# COO prefixes labels routinely use (English + common languages we see in the
+# COLA Cloud sample: French, Spanish, Italian, German, Portuguese).
+_COO_PREFIXES = (
+    # English
+    "product of ", "produce of ", "imported from ", "made in ",
+    "bottled in ", "distilled in ", "produced in ", "vintaged in ",
+    # French
+    "produit de ", "produit en ", "vin de ",
+    # Spanish
+    "hecho en ", "producto de ", "elaborado en ", "vino de ",
+    "embotellado en ",
+    # Italian
+    "prodotto in ", "imbottigliato in ", "vino di ",
+    # German
+    "erzeugnis aus ", "produkt aus ", "abgefullt in ",
+    # Portuguese
+    "produto de ", "feito em ",
+)
+
+
 def _normalize_country_of_origin(extracted: str) -> str:
-    """Strip the common 'Product of X' / 'Imported from X' / 'Made in X' prefixes
-    that real labels print but COLA application forms do not.
+    """Strip common 'Product of X' prefixes (English + common languages) so
+    'PRODUIT DE FRANCE', 'HECHO EN MEXICO', 'PRODOTTO IN ITALIA' all reduce
+    to just the country name.
+
+    Real labels frequently print DUAL-LANGUAGE displays like
+    'PRODUIT DE FRANCE PRODUCT OF FRANCE'. We strip the first matching prefix,
+    then again on the remainder until no prefix matches.
     """
     if not extracted:
         return extracted
-    low = extracted.strip().lower()
-    for prefix in ("product of ", "produce of ", "imported from ", "made in ",
-                   "bottled in ", "distilled in "):
-        if low.startswith(prefix):
-            return extracted.strip()[len(prefix):]
-    return extracted
+    out = extracted.strip()
+    # Strip up to 3 layers of prefix (for dual / triple language displays).
+    for _ in range(3):
+        low = out.lower()
+        changed = False
+        for prefix in _COO_PREFIXES:
+            if low.startswith(prefix):
+                out = out[len(prefix):].strip()
+                changed = True
+                break
+        if not changed:
+            break
+    return out
+
+
+def _classify_country_of_origin(declared: str, extracted: str):
+    """COO comparison tolerant of: foreign-language prefixes, dual-language
+    displays, and the printed country appearing anywhere in the extracted
+    text after noise is stripped.
+
+    Examples that should be 'match':
+      declared='france'  extracted='PRODUIT DE FRANCE PRODUCT OF FRANCE'
+      declared='mexico'  extracted='HECHO EN MEXICO'
+      declared='italy'   extracted='PRODOTTO IN ITALIA'   (italia ≡ italy?)
+    """
+    from .field_match import FieldVerdict, classify_field
+
+    if not extracted:
+        return classify_field(declared, extracted)
+
+    # Country name normalization (English) — handles native-language forms
+    # the engine commonly sees on imported labels.
+    country_aliases = {
+        "italy":   {"italy", "italia"},
+        "france":  {"france"},
+        "spain":   {"spain", "espana", "españa"},
+        "germany": {"germany", "deutschland"},
+        "mexico":  {"mexico", "méxico"},
+        "portugal":{"portugal"},
+        "argentina":{"argentina"},
+        "chile":   {"chile"},
+        "scotland":{"scotland"},
+        "ireland": {"ireland", "eire"},
+        "japan":   {"japan", "nippon"},
+    }
+    d_low = declared.strip().lower()
+    target_words = country_aliases.get(d_low, {d_low})
+
+    # Strip prefixes, then tokenize the result.
+    stripped = _normalize_country_of_origin(extracted).lower()
+    # Also strip prefix tokens that may not be at position 0 (dual-language).
+    for prefix in _COO_PREFIXES:
+        if prefix.strip() in stripped:
+            stripped = stripped.replace(prefix.strip(), " ")
+    # Word-level membership check.
+    import re as _r
+    tokens = set(_r.findall(r"[a-zA-Záéíóúñü]+", stripped))
+    if target_words & tokens:
+        return FieldVerdict(
+            status="match",
+            normalized_declared=d_low,
+            normalized_extracted=" ".join(sorted(tokens)),
+            similarity=1.0,
+            note=None if d_low in tokens else f"Country name appears in '{extracted.strip()[:60]}' after prefix strip.",
+        )
+    # Fall through to similarity / containment via the generic classifier.
+    return classify_field(declared.title(), _normalize_country_of_origin(extracted).title())
 
 
 # Class/type tokens that indicate a malt beverage contains added nonbeverage
@@ -146,10 +317,10 @@ def verify(
 
         # Per-field normalization for real-world realities the COLA form doesn't capture:
         extracted_value = extracted_field.value
-        if spec.label_name == "Country of origin":
-            # Strip 'Product of X' prefix; case is not meaningful (16.21 doesn't require it).
-            extracted_value = _normalize_country_of_origin(extracted_value)
-            verdict = classify_field(declared.title(), extracted_value.title())
+        if spec.label_name == "Brand name":
+            verdict = _classify_brand(declared, extracted_value)
+        elif spec.label_name == "Country of origin":
+            verdict = _classify_country_of_origin(declared, extracted_value)
         elif spec.label_name == "Class & type" and _is_umbrella_class(declared):
             # Form declared a taxonomy umbrella ('beer'); label printed a specific
             # designation. Any non-empty designation is consistent.

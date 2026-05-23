@@ -260,7 +260,7 @@ See **[docs/COVERAGE.md](docs/COVERAGE.md)** for the complete matrix:
 ### Quick summary
 
 **Deterministic 100% gates (rules engine, no AI):**
-- 62 unit tests covering every field-matching and warning rule
+- 69 unit tests covering every field-matching and warning rule
 - 9 synthetic-fixture cases run through the live FastAPI in mock mode
 - Both run in plain `pytest` and in CI
 
