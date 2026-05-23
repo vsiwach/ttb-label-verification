@@ -63,21 +63,23 @@ def header_cell(model_name, base_model, library, runtime_advice):
 
 def install_qwen():
     return md("## 0. Install dependencies\n"), code(
-        "# Qwen2.5-VL via Unsloth — install Unsloth (it manages compatible torch /\n",
-        "# transformers / bitsandbytes versions automatically) + TRL for the SFT trainer.\n",
-        "!pip install -q --upgrade pip\n",
-        "!pip install -q --upgrade 'unsloth' 'trl<0.10.0' peft accelerate 'bitsandbytes>=0.44'\n",
-        "!pip install -q --upgrade datasets pillow requests tqdm\n",
+        "# Qwen2.5-VL via Unsloth — Unsloth manages compatible torch / transformers /\n",
+        "# bitsandbytes versions. Pin peft<0.14 (newer peft requires transformers>=4.49\n",
+        "# which conflicts with what Unsloth currently brings in).\n",
+        "!pip install --upgrade pip\n",
+        "!pip install --upgrade 'unsloth' 'trl<0.10.0' 'peft<0.14' accelerate 'bitsandbytes>=0.44'\n",
+        "!pip install --upgrade 'datasets>=2.20' pyarrow pillow requests tqdm\n",
     )
 
 
 def install_kimi():
     return md("## 0. Install dependencies\n"), code(
         "# Kimi-VL-A3B-Thinking-2506 — model card pins transformers==4.48.2 specifically.\n",
+        "# Pin peft<0.14 because peft 0.14+ requires transformers>=4.49.\n",
         "# Numpy 2.x is the ABI modern wheels are built against — do NOT pin numpy<2.\n",
-        "!pip install -q --upgrade pip\n",
-        "!pip install -q 'transformers==4.48.2' accelerate 'bitsandbytes>=0.44' peft 'trl<0.10.0' sentencepiece\n",
-        "!pip install -q --upgrade datasets pillow requests tqdm\n",
+        "!pip install --upgrade pip\n",
+        "!pip install 'transformers==4.48.2' accelerate 'bitsandbytes>=0.44' 'peft<0.14' 'trl<0.10.0' sentencepiece\n",
+        "!pip install --upgrade 'datasets>=2.20' pyarrow pillow requests tqdm\n",
     )
 
 
@@ -94,7 +96,7 @@ def validate_imports_cell(extra_modules=()):
         "error, do `Runtime → Disconnect and delete runtime` (fresh VM, not just restart) "
         "and Run all again.\n",
     ), code(
-        "import importlib\n",
+        "import importlib, traceback\n",
         f"_required = ['torch', 'transformers', 'accelerate', 'peft', 'trl', 'bitsandbytes', 'datasets', 'PIL', 'tqdm'{extra}]\n",
         "_failed = []\n",
         "for mod in _required:\n",
@@ -102,12 +104,17 @@ def validate_imports_cell(extra_modules=()):
         "        m = importlib.import_module(mod)\n",
         "        print(f'  ✓ {mod:<14} {getattr(m, \"__version__\", \"?\")}')\n",
         "    except Exception as e:\n",
-        "        print(f'  ✗ {mod:<14} FAILED — {type(e).__name__}: {e}')\n",
-        "        _failed.append(mod)\n",
+        "        print(f'\\n  ✗ {mod:<14} FAILED — {type(e).__name__}: {e}')\n",
+        "        traceback.print_exc(limit=5)\n",
+        "        _failed.append((mod, f'{type(e).__name__}: {e}'))\n",
         "if _failed:\n",
+        "    msg = '\\n'.join(f'  {mod}: {err}' for mod, err in _failed)\n",
         "    raise RuntimeError(\n",
-        "        f'{len(_failed)} import(s) failed: {_failed}. Most common cause: numpy ABI '\n",
-        "        f'mismatch — do Runtime → Disconnect and delete runtime, then Run all.'\n",
+        "        f'\\n{len(_failed)} import(s) failed:\\n{msg}\\n\\n'\n",
+        "        'Common fixes (try in order):\\n'\n",
+        "        '  1. Pin peft<0.14 if transformers is pinned to 4.48.2:\\n'\n",
+        "        \"        !pip install -q --upgrade 'peft<0.14' 'datasets>=2.20' pyarrow\\n\"\n",
+        "        '  2. ABI mismatch — do Runtime → Disconnect and delete runtime, then Run all.\\n'\n",
         "    )\n",
         "print('\\n✅ All imports clean.')\n",
     )
