@@ -1,0 +1,18 @@
+# Heavy ML deps for INFERENCE_MODE=sft.
+# Kept out of requirements.txt so mock/cloud/claude-code/onprem users don't
+# pay the ~3 GB torch install cost.
+#
+# Install with:   pip install -r backend/requirements-sft.txt
+#
+# CUDA users: install torch from https://pytorch.org/ FIRST (with the right
+# CUDA wheel), then run this file. On CPU/Mac the line below is fine.
+
+torch>=2.1
+transformers>=4.46,<4.50
+accelerate>=0.30
+peft>=0.13,<0.14
+bitsandbytes>=0.44   # CUDA only — uninstall on Mac if it complains
+safetensors
+sentencepiece
+protobuf
+Pillow

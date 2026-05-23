@@ -8,6 +8,7 @@ from .claude_code import ClaudeCodeExtractor
 from .cloud import CloudExtractor
 from .mock import MockExtractor
 from .onprem import OnPremExtractor
+from .sft import SFTExtractor
 
 
 def get_extractor(brand_hint: str = "") -> LabelExtractor:
@@ -31,4 +32,6 @@ def get_extractor(brand_hint: str = "") -> LabelExtractor:
         return ClaudeCodeExtractor(model=settings.cloud_model)
     if mode == "onprem":
         return OnPremExtractor(vlm_url=settings.onprem_vlm_url, vlm_model=settings.onprem_vlm_model)
+    if mode == "sft":
+        return SFTExtractor(model_dir=settings.sft_model_dir)
     raise InferenceError(f"Unknown INFERENCE_MODE={mode!r}")
