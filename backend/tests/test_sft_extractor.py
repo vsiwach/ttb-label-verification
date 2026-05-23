@@ -14,7 +14,6 @@ from app.extractors.base import InferenceError
 from app.extractors.sft import (
     _read_manifest,
     _is_qwen_family,
-    _is_donut_family,
     _try_parse_json,
     _to_extracted_label,
 )
@@ -23,19 +22,11 @@ from app.extractors.sft import (
 def test_manifest_dispatch_qwen():
     m = {"model_tag": "qwen2_5_vl_7b", "base_model": "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit"}
     assert _is_qwen_family(m) is True
-    assert _is_donut_family(m) is False
 
 
-def test_manifest_dispatch_donut():
-    m = {"model_tag": "donut", "base_model": "naver-clova-ix/donut-base"}
-    assert _is_donut_family(m) is True
-    assert _is_qwen_family(m) is False
-
-
-def test_manifest_dispatch_unknown_returns_false_both():
+def test_manifest_dispatch_unknown_returns_false():
     m = {"model_tag": "something_else", "base_model": "random/model"}
     assert _is_qwen_family(m) is False
-    assert _is_donut_family(m) is False
 
 
 def test_read_manifest_direct_path(tmp_path):
@@ -49,13 +40,6 @@ def test_read_manifest_under_adapter_subdir(tmp_path):
     (tmp_path / "adapter" / "manifest.json").write_text('{"model_tag": "qwen_x", "base_model": "z"}')
     m = _read_manifest(tmp_path)
     assert m["model_tag"] == "qwen_x"
-
-
-def test_read_manifest_under_model_subdir(tmp_path):
-    (tmp_path / "model").mkdir()
-    (tmp_path / "model" / "manifest.json").write_text('{"model_tag": "donut", "base_model": "z"}')
-    m = _read_manifest(tmp_path)
-    assert m["model_tag"] == "donut"
 
 
 def test_read_manifest_missing_raises(tmp_path):

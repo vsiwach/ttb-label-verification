@@ -11,7 +11,7 @@ API      ?= http://localhost:8000/api
 PORT     ?= 8000
 
 .PHONY: help install install-sft test eval-synth eval-real \
-        serve-mock serve-cloud serve-max serve-sft-qwen serve-sft-donut \
+        serve-mock serve-cloud serve-max serve-sft-qwen \
         build-eval-data clean
 
 help:
@@ -26,7 +26,6 @@ help:
 	@echo "  serve-cloud     Run backend in cloud mode (reads backend/.env; pay-per-token API)"
 	@echo "  serve-max       Run backend via Claude Code CLI (uses Max subscription, no API key)"
 	@echo "  serve-sft-qwen  Run backend with the local Qwen2.5-VL LoRA adapter (no network)"
-	@echo "  serve-sft-donut Run backend with the local Donut fine-tune (no network)"
 	@echo "  clean           Remove caches"
 
 install:
@@ -72,13 +71,12 @@ serve-max:
 	cd backend && INFERENCE_MODE=claude-code ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
-# Locally-fine-tuned VLMs — no network, no API keys. Requires `make install-sft`.
+# Locally-fine-tuned Qwen2.5-VL LoRA — no network, no API keys.
+# Requires `make install-sft`. On Mac (no CUDA), loads the full-precision
+# base (~14 GB unified memory) and runs slow (~30-60s/image). On CUDA hosts
+# loads in 4-bit and matches training-time speed.
 serve-sft-qwen:
 	cd backend && INFERENCE_MODE=sft SFT_MODEL_DIR=models/qwen2_5_vl_7b ANTHROPIC_API_KEY="" \
-	    ../$(UVICORN) app.main:app --reload --port $(PORT)
-
-serve-sft-donut:
-	cd backend && INFERENCE_MODE=sft SFT_MODEL_DIR=models/donut ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
 clean:
