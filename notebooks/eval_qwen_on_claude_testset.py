@@ -87,7 +87,10 @@ SYSTEM_PROMPT = (
     "contrast_ok, separate_and_apart}, image_quality: {score, legible, note}}"
 )
 
-def _qwen_extract(image_path: str, beverage_type: str) -> dict | None:
+def _qwen_extract(image_path: str, beverage_type: str):
+    """Returns (parsed_dict_or_None, raw_decoded_text). We return both so
+    the JSONL fixture preserves the raw output for local replay through
+    the rules engine."""
     img = Image.open(image_path).convert("RGB")
     msgs = [
         {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
@@ -105,13 +108,13 @@ def _qwen_extract(image_path: str, beverage_type: str) -> dict | None:
     )[0]
     s, e = decoded.find("{"), decoded.rfind("}")
     if s == -1 or e == -1:
-        return None
+        return None, decoded
     try:
-        return json.loads(decoded[s:e+1])
+        return json.loads(decoded[s:e+1]), decoded
     except json.JSONDecodeError:
         cleaned = re.sub(r",(\s*[}\]])", r"\1", decoded[s:e+1])
-        try: return json.loads(cleaned)
-        except Exception: return None
+        try: return json.loads(cleaned), decoded
+        except Exception: return None, decoded
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. Field-match logic — IDENTICAL to test/eval/run_eval.py fields_match_loose
@@ -175,13 +178,23 @@ n_parsed = n_unparseable = 0
 warn_match = warn_total = 0
 latencies = []
 misses = []
+qwen_outputs_jsonl = []  # ← per-image record for local rules-engine replay
 
 print(f"\nExtracting on {len(downloaded)} images...")
 for i, row in enumerate(downloaded, 1):
     bev = (row.get("beverage_type") or "wine").lower()
     t0 = time.time()
-    pred = _qwen_extract(row["_image_path"], bev)
-    latencies.append(time.time() - t0)
+    pred, raw_text = _qwen_extract(row["_image_path"], bev)
+    dt = time.time() - t0
+    latencies.append(dt)
+    qwen_outputs_jsonl.append({
+        "image_filename": row.get("image_filename") or (row["ttb_image_id"] + ".webp"),
+        "ttb_image_id":   row["ttb_image_id"],
+        "beverage_type":  bev,
+        "raw_output":     raw_text,
+        "parsed_output":  pred,
+        "latency_sec":    round(dt, 3),
+    })
     if pred is None:
         n_unparseable += 1
         if i % 10 == 0: print(f"  [{i}/{len(downloaded)}] unparseable")
@@ -240,6 +253,15 @@ report = {
 
 out_path = EVAL_DIR / "qwen_on_claude_testset_report.json"
 out_path.write_text(json.dumps(report, indent=2))
+
+# Also save the per-image raw outputs as JSONL — this is the input to the
+# LOCAL replay script (test/eval/replay_qwen.py) that runs the rules engine
+# on these extractions to produce the apples-to-apples comparison report.
+jsonl_path = EVAL_DIR / "qwen_outputs.jsonl"
+with open(jsonl_path, "w") as f:
+    for rec in qwen_outputs_jsonl:
+        f.write(json.dumps(rec) + "\n")
+
 print()
 print("=" * 70)
 print(f"Aggregate field extraction:  {report['field_correct']}/{report['field_total']} = {report['field_extraction_accuracy']:.2%}")
@@ -249,6 +271,12 @@ print()
 for f, v in report["per_field_accuracy"].items():
     print(f"  {f:<24} {v['correct']:>3} / {v['total']:>3} = {(v['accuracy'] or 0):.1%}")
 print("=" * 70)
-print(f"\nReport written to {out_path} — auto-downloading...")
+print(f"\nReports written to {EVAL_DIR}:")
+print(f"  {out_path.name}      (per-field accuracy summary)")
+print(f"  {jsonl_path.name}     ({len(qwen_outputs_jsonl)} per-image Qwen outputs — feed to test/eval/replay_qwen.py)")
+print("\nAuto-downloading both...")
 
 files.download(str(out_path))
+files.download(str(jsonl_path))
+print("\nOn your Mac, run:")
+print("  python test/eval/replay_qwen.py   # uses ~/Downloads/qwen_outputs.jsonl by default")

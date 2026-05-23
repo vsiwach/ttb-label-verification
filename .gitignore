@@ -27,3 +27,4 @@ yarn-error.log*
 
 # SFT model bundles — large weights, kept out of git. Unzip from ~/Downloads to use.
 backend/models/
+test/eval/__pycache__/
