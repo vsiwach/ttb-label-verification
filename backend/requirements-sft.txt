@@ -4,15 +4,19 @@
 #
 # Install with:   pip install -r backend/requirements-sft.txt
 #
-# CUDA users: install torch from https://pytorch.org/ FIRST (with the right
-# CUDA wheel), then run this file. On CPU/Mac the line below is fine.
+# CUDA users: install torch from https://pytorch.org/ FIRST with the right
+# CUDA wheel, then run this file. On CPU/Mac the line below is fine.
+#
+# Inference is BF16 throughout — no quantization, so no bitsandbytes here.
+# (bitsandbytes is only needed at training time for the adamw_8bit optimizer;
+# that pin lives in the training notebooks' install cells.)
 
-torch>=2.1
-transformers>=4.46,<4.50
+torch>=2.5
+transformers==4.51.3
+peft>=0.13
+torchao>=0.16
 accelerate>=0.30
-peft>=0.13,<0.14
-bitsandbytes>=0.44   # CUDA only — uninstall on Mac if it complains
 safetensors
 sentencepiece
-protobuf
+protobuf>=5.27
 Pillow

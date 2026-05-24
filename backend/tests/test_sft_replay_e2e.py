@@ -153,7 +153,7 @@ def test_sft_extractor_replay_with_stub_loader(tmp_path):
     (bundle / "adapter").mkdir(parents=True)
     (bundle / "adapter" / "manifest.json").write_text(json.dumps({
         "model_tag": "qwen2_5_vl_7b_fake",
-        "base_model": "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit",
+        "base_model": "Qwen/Qwen2.5-VL-7B-Instruct",
     }))
 
     extractor = SFTExtractor(model_dir=str(bundle))

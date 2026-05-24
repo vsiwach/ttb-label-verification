@@ -1,43 +1,19 @@
 {
-  "mode": "qwen_replay",
-  "n": 89,
-  "approved_n": 59,
-  "field_extraction_accuracy": 0.4164,
-  "field_total": 353,
-  "field_correct": 147,
-  "verdict_accuracy": 0.1685,
+  "mode": "qwen_bf16_replay",
+  "n": 90,
+  "approved_n": 60,
+  "field_extraction_accuracy": 0.6341,
+  "field_total": 358,
+  "field_correct": 227,
+  "verdict_accuracy": 0.1667,
   "auto_pass_rate_approved": 0.0,
-  "warning_false_flag_rate": 0.3729,
-  "latency_mean": 12.452,
-  "latency_p95": 15.729,
+  "warning_false_flag_rate": 0.25,
+  "latency_mean": 10.822,
+  "latency_p95": 13.455,
   "sft_extraction_missing_count": 0,
-  "sft_output_unparseable_count": 1,
-  "sft_empty_fields_count": 6,
+  "sft_output_unparseable_count": 0,
+  "sft_empty_fields_count": 0,
   "misses": [
-    {
-      "image": "25329001000751_0.webp",
-      "field": "Brand name",
-      "expected": "Blendings Winery",
-      "got": "",
-      "status": "likely",
-      "product": "Spiced Pumpkin"
-    },
-    {
-      "image": "25329001000751_0.webp",
-      "field": "Class & type",
-      "expected": "table flavored wine",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
-    {
-      "image": "25329001000751_0.webp",
-      "field": "Net contents",
-      "expected": "750 mL",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
     {
       "image": "25329001000751_0.webp",
       "mutation": "",
@@ -47,32 +23,23 @@
     },
     {
       "image": "25339001000092_0.webp",
-      "field": "Brand name",
-      "expected": "Blendings Winery",
-      "got": "",
-      "status": "likely",
-      "product": "Apple Pie"
-    },
-    {
-      "image": "25339001000092_0.webp",
-      "field": "Class & type",
-      "expected": "table flavored wine",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
-    {
-      "image": "25339001000092_0.webp",
-      "field": "Net contents",
-      "expected": "750 mL",
-      "got": "",
-      "status": "likely",
-      "product": null
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "malt_flavored"
     },
     {
       "image": "25343001000327_1.webp",
-      "field": "Country of origin",
-      "expected": "italy",
+      "field": "Brand name",
+      "expected": "Ruby",
+      "got": "",
+      "status": "likely",
+      "product": "Ruby's Rose"
+    },
+    {
+      "image": "25343001000327_1.webp",
+      "field": "Class & type",
+      "expected": "rose wine",
       "got": "",
       "status": "likely",
       "product": null
@@ -86,18 +53,10 @@
     },
     {
       "image": "25358001000049_1.webp",
-      "field": "Alcohol content",
-      "expected": "40% Alc./Vol.",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
-    {
-      "image": "25358001000049_1.webp",
       "field": "Net contents",
       "expected": "200 mL",
-      "got": "",
-      "status": "likely",
+      "got": "750 mL",
+      "status": "flag",
       "product": null
     },
     {
@@ -126,14 +85,6 @@
     },
     {
       "image": "25357001000625_1.webp",
-      "field": "Country of origin",
-      "expected": "france",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
-    {
-      "image": "25357001000625_1.webp",
       "mutation": "",
       "verdict_expected": "needs-review",
       "verdict_got": "needs-confirm",
@@ -141,32 +92,39 @@
     },
     {
       "image": "25329001000754_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "malt_flavored"
+    },
+    {
+      "image": "25349001000532_0.webp",
       "field": "Brand name",
-      "expected": "Blendings Winery",
+      "expected": "O-Mea-Raq 25",
       "got": "",
       "status": "likely",
-      "product": "Gingerbread"
+      "product": "Mea - Raq"
     },
     {
-      "image": "25329001000754_0.webp",
+      "image": "25349001000532_0.webp",
       "field": "Class & type",
-      "expected": "table flavored wine",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
-    {
-      "image": "25329001000754_0.webp",
-      "field": "Net contents",
-      "expected": "750 mL",
+      "expected": "other fruit & peels liqueurs",
       "got": "",
       "status": "likely",
       "product": null
     },
     {
       "image": "25349001000532_0.webp",
-      "field": "Class & type",
-      "expected": "other fruit & peels liqueurs",
+      "field": "Alcohol content",
+      "expected": "25% Alc./Vol.",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25349001000532_0.webp",
+      "field": "Net contents",
+      "expected": "375 mL",
       "got": "",
       "status": "likely",
       "product": null
@@ -182,22 +140,14 @@
       "image": "25339001000022_0.webp",
       "field": "Brand name",
       "expected": "Gold Snow",
-      "got": "",
-      "status": "likely",
+      "got": "Korean Food",
+      "status": "flag",
       "product": "159"
     },
     {
       "image": "25339001000022_0.webp",
-      "field": "Class & type",
-      "expected": "other specialties & proprietaries",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
-    {
-      "image": "25339001000022_0.webp",
-      "field": "Net contents",
-      "expected": "375 mL",
+      "field": "Country of origin",
+      "expected": "south korea",
       "got": "",
       "status": "likely",
       "product": null
@@ -212,16 +162,8 @@
     },
     {
       "image": "25357001000157_0.webp",
-      "field": "Alcohol content",
-      "expected": "11.8% Alc./Vol.",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
-    {
-      "image": "25357001000157_0.webp",
-      "field": "Net contents",
-      "expected": "750 mL",
+      "field": "Class & type",
+      "expected": "table white wine",
       "got": "",
       "status": "likely",
       "product": null
@@ -235,18 +177,10 @@
     },
     {
       "image": "25360001000069_2.webp",
-      "field": "Alcohol content",
-      "expected": "40% Alc./Vol.",
-      "got": "",
-      "status": "likely",
-      "product": null
-    },
-    {
-      "image": "25360001000069_2.webp",
       "field": "Net contents",
       "expected": "1 L",
-      "got": "",
-      "status": "likely",
+      "got": "750 mL",
+      "status": "flag",
       "product": null
     },
     {
@@ -256,13 +190,6 @@
       "got": "",
       "status": "likely",
       "product": null
-    },
-    {
-      "image": "25360001000069_2.webp",
-      "mutation": "",
-      "verdict_expected": "needs-review",
-      "verdict_got": "needs-confirm",
-      "bucket": "spirits_tequila_import"
     },
     {
       "image": "25357001000298_1.webp",
@@ -297,6 +224,14 @@
     },
     {
       "image": "25356001000393_0.webp",
+      "field": "Class & type",
+      "expected": "table white wine",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25356001000393_0.webp",
       "mutation": "",
       "verdict_expected": "needs-review",
       "verdict_got": "needs-confirm",
@@ -306,14 +241,14 @@
       "image": "25342001000520_1.webp",
       "field": "Brand name",
       "expected": "Cremisan",
-      "got": "AL - JAZER",
-      "status": "match",
+      "got": "",
+      "status": "likely",
       "product": "Al Jazer"
     },
     {
       "image": "25342001000520_1.webp",
-      "field": "Country of origin",
-      "expected": "west bank",
+      "field": "Class & type",
+      "expected": "table white wine",
       "got": "",
       "status": "likely",
       "product": null
@@ -329,14 +264,14 @@
       "image": "25342001000556_1.webp",
       "field": "Brand name",
       "expected": "Cremisan",
-      "got": "AL - JAZER",
-      "status": "match",
+      "got": "",
+      "status": "likely",
       "product": "Al Jazer"
     },
     {
       "image": "25342001000556_1.webp",
-      "field": "Alcohol content",
-      "expected": "12% Alc./Vol.",
+      "field": "Class & type",
+      "expected": "table red wine",
       "got": "",
       "status": "likely",
       "product": null
@@ -345,23 +280,16 @@
       "image": "25342001000556_1.webp",
       "field": "Country of origin",
       "expected": "west bank",
-      "got": "",
-      "status": "likely",
+      "got": "Product of United States",
+      "status": "flag",
       "product": null
-    },
-    {
-      "image": "25342001000556_1.webp",
-      "mutation": "",
-      "verdict_expected": "needs-review",
-      "verdict_got": "needs-confirm",
-      "bucket": "wine_red_import"
     },
     {
       "image": "25358001000051_0.webp",
       "field": "Class & type",
       "expected": "agave spirits",
-      "got": "",
-      "status": "likely",
+      "got": "tequila fb",
+      "status": "match",
       "product": null
     },
     {
@@ -390,16 +318,84 @@
     },
     {
       "image": "25356001000027_0.webp",
-      "field": "Net contents",
-      "expected": "750 mL",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "wine_red_import"
+    },
+    {
+      "image": "25357001000169_0.webp",
+      "field": "Brand name",
+      "expected": "Moonbeam",
+      "got": "",
+      "status": "likely",
+      "product": "Moonridge Vineyard"
+    },
+    {
+      "image": "25357001000169_0.webp",
+      "field": "Class & type",
+      "expected": "table white wine",
       "got": "",
       "status": "likely",
       "product": null
     },
     {
-      "image": "25356001000027_0.webp",
+      "image": "25357001000169_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "wine_white"
+    },
+    {
+      "image": "25357001000142_0.webp",
+      "field": "Brand name",
+      "expected": "Moonbeam",
+      "got": "",
+      "status": "likely",
+      "product": "Michael Mara Vineyard"
+    },
+    {
+      "image": "25357001000142_0.webp",
+      "field": "Class & type",
+      "expected": "table white wine",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25357001000142_0.webp",
+      "mutation": "",
+      "verdict_expected": "needs-review",
+      "verdict_got": "needs-confirm",
+      "bucket": "wine_white"
+    },
+    {
+      "image": "25355001000120_0.webp",
+      "field": "Net contents",
+      "expected": "0.8 pints",
+      "got": "12 Fluid Ounces",
+      "status": "flag",
+      "product": null
+    },
+    {
+      "image": "25355001000120_0.webp",
       "field": "Country of origin",
-      "expected": "italy",
+      "expected": "el salvador",
+      "got": "",
+      "status": "likely",
+      "product": null
+    },
+    {
+      "image": "25355001000120_0.webp",
+      "mutation": "",
+      "verdict_expected": "auto-pass",
+      "verdict_got": "needs-review",
+      "bucket": "beer_generic"
+    },
+    {
+      "image": "25355001000111_0.webp",
+      "field": "Country of origin",
+      "expected": "el salvador",
       "got": "",
       "status": "likely",
       "product": null

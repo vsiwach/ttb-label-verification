@@ -5,9 +5,7 @@ One-time setup (locally):
     modal token new                           # auth
     modal volume create ttb-qwen-adapter      # adapter weights live here
     modal volume put ttb-qwen-adapter \\
-        backend/models/qwen2_5_vl_7b_bf16/adapter /adapter
-    # Note: serves the BF16-trained adapter. The earlier 4-bit Unsloth adapter
-    # at backend/models/qwen2_5_vl_7b/adapter is kept for A/B comparison only.
+        backend/models/qwen2_5_vl_7b/adapter /adapter
 
 Deploy:
     modal deploy backend/modal_deploy/serve_qwen.py
@@ -70,7 +68,7 @@ _SYSTEM_PROMPT = (
 
 @app.cls(
     image=image,
-    gpu="A10G",                          # 24 GB, $0.40/hr — fits Qwen 7B 4-bit comfortably
+    gpu="A10G",                          # 24 GB, $0.40/hr — fits Qwen 7B BF16 + LoRA comfortably
     volumes={
         "/adapter":                  adapter_volume,
         "/root/.cache/huggingface":  hf_cache_volume,
@@ -92,10 +90,9 @@ class QwenExtractor:
         )
 
         # Match the BF16 training setup (notebooks/sft_qwen2_5_vl.ipynb):
-        # official Qwen base loaded in BF16 (not bnb-4bit), then LoRA applied.
-        # Critical: training-time dtype MUST match inference-time dtype or the
-        # LoRA contribution is subtly off (the 4-bit + BF16 mismatch was the
-        # bug that produced the bad apples-to-apples result).
+        # Official Qwen base in BF16 + LoRA adapter applied + merged.
+        # Training-time and inference-time dtypes must match for LoRA to
+        # contribute correctly.
         BASE_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
         ADAPTER_DIR = "/adapter"
 

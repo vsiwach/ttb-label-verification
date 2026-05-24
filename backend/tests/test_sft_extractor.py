@@ -22,7 +22,7 @@ from app.extractors.sft import (
 
 
 def test_manifest_dispatch_qwen():
-    m = {"model_tag": "qwen2_5_vl_7b", "base_model": "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit"}
+    m = {"model_tag": "qwen2_5_vl_7b", "base_model": "Qwen/Qwen2.5-VL-7B-Instruct"}
     assert _is_qwen_family(m) is True
 
 

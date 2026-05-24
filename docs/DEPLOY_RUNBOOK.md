@@ -12,18 +12,18 @@ endpoint. Total time: **~30 min** the first time, ~5 min for redeploys.
    modal token new      # opens browser, authenticate
    ```
 
-2. **Adapter weights on disk** at `backend/models/qwen2_5_vl_7b_bf16/adapter/`.
+2. **Adapter weights on disk** at `backend/models/qwen2_5_vl_7b/adapter/`.
 
    Verify:
    ```bash
-   ls -lh backend/models/qwen2_5_vl_7b_bf16/adapter/adapter_model.safetensors
+   ls -lh backend/models/qwen2_5_vl_7b/adapter/adapter_model.safetensors
    # Expect ~180-190 MB
    ```
 
    If missing, unzip the bundle:
    ```bash
-   mkdir -p backend/models/qwen2_5_vl_7b_bf16
-   unzip ~/Downloads/ttb_sft_qwen2_5_vl_7b_bf16.zip -d backend/models/qwen2_5_vl_7b_bf16/
+   mkdir -p backend/models/qwen2_5_vl_7b
+   unzip ~/Downloads/ttb_sft_qwen2_5_vl_7b.zip -d backend/models/qwen2_5_vl_7b/
    ```
 
 ## Step 1 — Upload the LoRA adapter to Modal (~2 min)
@@ -36,13 +36,13 @@ Behind the scenes this runs:
 ```
 modal volume create ttb-qwen-adapter         # creates if missing, no-op otherwise
 modal volume put --force ttb-qwen-adapter \
-    backend/models/qwen2_5_vl_7b_bf16/adapter /adapter
+    backend/models/qwen2_5_vl_7b/adapter /adapter
 ```
 
 You should see:
 ```
-Uploading file: backend/models/qwen2_5_vl_7b_bf16/adapter/adapter_model.safetensors (181.6MB)
-Uploading file: backend/models/qwen2_5_vl_7b_bf16/adapter/adapter_config.json (1.1kB)
+Uploading file: backend/models/qwen2_5_vl_7b/adapter/adapter_model.safetensors (181.6MB)
+Uploading file: backend/models/qwen2_5_vl_7b/adapter/adapter_config.json (1.1kB)
 ...
 Volume 'ttb-qwen-adapter' updated.
 ```
@@ -172,7 +172,7 @@ modal volume delete ttb-qwen-adapter
 ## What's deployed
 
 - **Base model**: `Qwen/Qwen2.5-VL-7B-Instruct` (BF16, 16 GB, downloaded once to a persistent HF cache volume)
-- **LoRA adapter**: from `backend/models/qwen2_5_vl_7b_bf16/adapter/` (~190 MB, on Modal volume)
+- **LoRA adapter**: from `backend/models/qwen2_5_vl_7b/adapter/` (~190 MB, on Modal volume)
 - **Inference path**: BF16 base → LoRA merged in (no quantization, no PEFT overhead at inference)
 - **Image preprocessing**: cap at 640×640 area → ~400 visual tokens (matches eval notebook's `_resize_for_eval`)
 - **Generation**: max_new_tokens=384, do_sample=False, pad=eos
@@ -183,7 +183,7 @@ modal volume delete ttb-qwen-adapter
 - [ ] `make modal-upload-adapter` — exit 0, prints "Volume updated"
 - [ ] `make modal-deploy` — exit 0, prints endpoint URL
 - [ ] `curl <endpoint>` — first call returns valid JSON within 60 s
-- [ ] `make serve-modal` + `make eval-real` — full backend smoke test, verdict accuracy matches `qwen_bf16_report.json`
+- [ ] `make serve-modal` + `make eval-real` — full backend smoke test, verdict accuracy matches `qwen_report.json`
 - [ ] Frontend hits backend → verdict shows in UI within ~10 s end-to-end
 
 Then you're live.

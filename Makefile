@@ -19,7 +19,7 @@ PORT     ?= 8000
 help:
 	@echo "Targets:"
 	@echo "  install         Create backend venv and install Python deps"
-	@echo "  install-sft     Also install heavy ML deps (torch, transformers, peft, bitsandbytes) for sft mode"
+	@echo "  install-sft     Also install heavy ML deps (torch, transformers, peft) for sft mode"
 	@echo "  test            Run the full pytest suite (rules engine + integration + synthetic gate)"
 	@echo "  eval-synth      Boot backend in MOCK mode and run synthetic eval; MUST be 100% (CI gate)"
 	@echo "  eval-real       Run real eval against test/eval/data (requires backend already running)"
@@ -111,9 +111,9 @@ serve-max:
 # Locally-fine-tuned Qwen2.5-VL LoRA — no network, no API keys.
 # Requires `make install-sft`. On Mac (no CUDA), loads the full-precision
 # base (~14 GB unified memory) and runs slow (~30-60s/image). On CUDA hosts
-# loads in 4-bit and matches training-time speed.
+# loads in BF16 and merges LoRA for fast inference.
 serve-sft-qwen:
-	cd backend && INFERENCE_MODE=sft SFT_MODEL_DIR=models/qwen2_5_vl_7b_bf16 ANTHROPIC_API_KEY="" \
+	cd backend && INFERENCE_MODE=sft SFT_MODEL_DIR=models/qwen2_5_vl_7b ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
 # Routes extraction to a Modal-hosted Qwen endpoint. No GPU or heavy ML deps
@@ -129,9 +129,8 @@ modal-deploy:
 	modal deploy backend/modal_deploy/serve_qwen.py
 
 # Upload the trained LoRA adapter to Modal's persistent volume.
-# Defaults to the BF16-trained adapter (the shipping model). Override with
-# SFT_MODEL_DIR=... if you want to test the 4-bit baseline instead.
-SFT_MODEL_DIR ?= backend/models/qwen2_5_vl_7b_bf16
+# Idempotent — re-running with new weights overwrites the volume contents.
+SFT_MODEL_DIR ?= backend/models/qwen2_5_vl_7b
 modal-upload-adapter:
 	modal volume create ttb-qwen-adapter 2>/dev/null || true
 	modal volume put --force ttb-qwen-adapter $(SFT_MODEL_DIR)/adapter /adapter

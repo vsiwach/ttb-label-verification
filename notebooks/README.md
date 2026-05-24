@@ -42,7 +42,7 @@ Every notebook above uses the same verified-working stack and conventions:
 - **peft>=0.13 + torchao>=0.16** — peft 0.13+ asserts on torchao≥0.16
 - **protobuf>=5.27** — transformers 4.48+ needs `runtime_version`
 - **numpy>=2.0,<2.2** — wheel ABI sweet spot, with idempotent install + auto-restart
-- **BF16, not 4-bit** — matches inference quantization, avoids the rambling-output problem
+- **BF16 throughout** (training + inference) — no quantization, no dtype mismatch
 - **Group-aware train/val/test split** by COLA `TTB_ID` (no image leak across splits)
 - **Canonical field names** (`Brand name`, `Class & type`, etc.) enforced in SYSTEM_PROMPT to prevent snake_case drift
 - **Drive mount everywhere** — no browser uploads of the heavy adapter/model files

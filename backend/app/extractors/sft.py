@@ -6,7 +6,7 @@ Bundle layout (see backend/models/qwen2_5_vl_7b/):
       ├── adapter/         # PEFT adapter + tokenizer + manifest.json
       └── eval_report.json # per-field accuracy from the notebook eval
 
-Heavy ML deps (torch, transformers, peft, bitsandbytes) are imported LAZILY
+Heavy ML deps (torch, transformers, peft) are imported LAZILY
 inside the loader so the rest of the backend (mock / cloud / claude-code /
 onprem) doesn't need them installed. To run sft mode locally:
 
@@ -15,10 +15,9 @@ onprem) doesn't need them installed. To run sft mode locally:
 The extractor returns the same ExtractedLabel shape as every other adapter —
 the rules engine then makes match/likely/flag decisions against it.
 
-Runtime selection:
-  - CUDA available  → loads in 4-bit via bitsandbytes (matches training)
-  - No CUDA (Mac)   → falls back to bf16/fp16 base (~14 GB unified memory)
-                      since bitsandbytes is CUDA-only. Slower but works.
+Runtime: loads the official BF16 base + applies the LoRA adapter, then
+merges LoRA into base for fast inference. Works on CUDA, MPS (Mac), and
+CPU — only speed differs (~3 s, ~30 s, ~5 min/image respectively).
 """
 
 from __future__ import annotations
@@ -88,22 +87,18 @@ def _is_qwen_family(manifest: dict[str, Any]) -> bool:
 class _QwenLoader:
     """Lazy-loads Qwen2.5-VL base + LoRA adapter on first call.
 
-    On CUDA hosts: loads in 4-bit via bitsandbytes (matches training).
-    On non-CUDA hosts (e.g. Mac M-series): loads base in bf16/fp16 — bnb is
-    CUDA-only. Inference is slower but functionally correct.
+    Loads the official Qwen base in BF16 (matches training-time dtype) and
+    applies the LoRA adapter on top. Then merges LoRA into base for fast
+    inference. Works identically on CUDA, MPS, and CPU — only speed differs.
     """
+
+    BASE_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 
     def __init__(self, model_dir: Path, manifest: dict[str, Any]):
         self.model_dir = model_dir
         self.adapter_dir = model_dir / "adapter"
         if not self.adapter_dir.exists():
             raise InferenceError(f"Qwen adapter dir missing: {self.adapter_dir}")
-        # The bundle's base_model points at the bnb-prequantized weights,
-        # which only loadable with bitsandbytes on CUDA. On non-CUDA hosts
-        # we substitute the full-precision base of the same model.
-        bundle_base = manifest.get("base_model", "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit")
-        self.bundle_base = bundle_base
-        self.full_precision_base = "Qwen/Qwen2.5-VL-7B-Instruct"
         self._model = None
         self._processor = None
 
@@ -124,54 +119,29 @@ class _QwenLoader:
             ) from e
 
         if torch.cuda.is_available():
-            self._load_cuda_4bit(torch, PeftModel, AutoProcessor, Qwen2_5_VLForConditionalGeneration)
+            device, attn = "auto", "sdpa"
+        elif torch.backends.mps.is_available():
+            device, attn = "mps", "eager"
         else:
-            self._load_non_cuda_fp(torch, PeftModel, AutoProcessor, Qwen2_5_VLForConditionalGeneration)
+            device, attn = "cpu", "eager"
 
-    def _load_cuda_4bit(self, torch, PeftModel, AutoProcessor, Qwen2_5_VLForConditionalGeneration):
-        try:
-            from transformers import BitsAndBytesConfig  # type: ignore
-        except ImportError as e:
-            raise InferenceError(
-                "CUDA detected but bitsandbytes/BitsAndBytesConfig missing. "
-                "pip install bitsandbytes>=0.44"
-            ) from e
-        logger.info("Loading Qwen2.5-VL 4-bit base %s + LoRA from %s", self.bundle_base, self.adapter_dir)
-        bnb = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-        )
+        logger.info("Loading %s (BF16, device=%s) + LoRA from %s",
+                    self.BASE_MODEL, device, self.adapter_dir)
         base = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            self.bundle_base,
-            quantization_config=bnb,
+            self.BASE_MODEL,
             torch_dtype=torch.bfloat16,
-            device_map="auto",
-        )
-        self._model = PeftModel.from_pretrained(base, str(self.adapter_dir))
-        self._model.eval()
-        self._processor = AutoProcessor.from_pretrained(str(self.adapter_dir))
-        logger.info("Qwen2.5-VL + LoRA loaded (CUDA, 4-bit).")
-
-    def _load_non_cuda_fp(self, torch, PeftModel, AutoProcessor, Qwen2_5_VLForConditionalGeneration):
-        # bnb is CUDA-only. On Mac (MPS) or CPU, load the full-precision base.
-        dtype = torch.bfloat16 if torch.backends.mps.is_available() else torch.float32
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
-        logger.info(
-            "No CUDA — loading FULL-PRECISION base %s (dtype=%s, device=%s) + LoRA. "
-            "Inference will be slow (~30-60s/image on Mac M-series).",
-            self.full_precision_base, dtype, device,
-        )
-        base = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            self.full_precision_base,
-            torch_dtype=dtype,
+            device_map=device if device == "auto" else None,
             low_cpu_mem_usage=True,
-        ).to(device)
+            attn_implementation=attn,
+        )
+        if device != "auto":
+            base = base.to(device)
         self._model = PeftModel.from_pretrained(base, str(self.adapter_dir))
+        # Merge LoRA into base — eliminates per-call LoRA overhead. Safe in BF16.
+        self._model = self._model.merge_and_unload()
         self._model.eval()
-        self._processor = AutoProcessor.from_pretrained(str(self.adapter_dir))
-        logger.info("Qwen2.5-VL + LoRA loaded (%s, full-precision).", device)
+        self._processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+        logger.info("Qwen2.5-VL + LoRA loaded and merged.")
 
     def generate_json(self, image_bytes: bytes, beverage_type: str) -> str:
         self._ensure_loaded()
@@ -179,6 +149,21 @@ class _QwenLoader:
         from PIL import Image  # type: ignore
 
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        # Cap image resolution: Qwen2.5-VL otherwise tiles at native res and
+        # produces 4000+ visual tokens → quadratic-slow attention. 640x640
+        # area ≈ 400 visual tokens, plenty for label OCR. Matches the
+        # _resize_for_eval in notebooks/eval_qwen_drive.ipynb and the
+        # equivalent in backend/modal_deploy/serve_qwen.py.
+        MAX_PIXELS = 640 * 640
+        w, h = img.size
+        if w * h > MAX_PIXELS:
+            scale = (MAX_PIXELS / (w * h)) ** 0.5
+            img = img.resize((max(int(w * scale), 28), max(int(h * scale), 28)), Image.LANCZOS)
+        w, h = img.size
+        w28, h28 = max((w // 28) * 28, 28), max((h // 28) * 28, 28)
+        if (w28, h28) != (w, h):
+            img = img.resize((w28, h28), Image.LANCZOS)
+
         messages = [
             {"role": "system", "content": [{"type": "text", "text": _SYSTEM_PROMPT}]},
             {"role": "user", "content": [
@@ -187,9 +172,16 @@ class _QwenLoader:
             ]},
         ]
         text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = self._processor(text=text, images=[img], return_tensors="pt").to(self._model.device)
+        inputs = self._processor(text=[text], images=[img], padding=True, return_tensors="pt").to(self._model.device)
         with torch.no_grad():
-            out = self._model.generate(**inputs, max_new_tokens=512, do_sample=False)
+            out = self._model.generate(
+                **inputs,
+                max_new_tokens=384,
+                do_sample=False,
+                temperature=None,
+                top_p=None,
+                pad_token_id=self._processor.tokenizer.eos_token_id,
+            )
         decoded = self._processor.batch_decode(
             out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True
         )[0]

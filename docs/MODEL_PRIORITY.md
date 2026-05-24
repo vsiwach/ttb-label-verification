@@ -1,8 +1,8 @@
 # Model Priority — Best Bet for (Accuracy + <5s Latency)
 
-Decision framework after the Qwen 4-bit baseline showed Claude wins all metrics.
-What model investment most likely produces a deployable SFT extractor that
-beats Claude on at least one dimension under TTB constraints?
+Decision framework: Qwen2.5-VL-7B currently lands ~6pp behind Claude on field
+extraction (see `test/eval/QWEN_VS_CLAUDE.md`). What model investment is most
+likely to close that gap or unlock a different deployment advantage?
 
 ## Constraints
 
@@ -22,17 +22,16 @@ beats Claude on at least one dimension under TTB constraints?
 
 ## Recommendation: train in this order
 
-### 1. Qwen2.5-VL-7B BF16 — first (highest accuracy ceiling)
+### 1. Qwen2.5-VL-7B — first (highest accuracy ceiling, already shipping)
 
-**Why**: Closes the dtype-mismatch + field-naming issues that crippled the
-4-bit run. Most likely to actually beat Claude on accuracy. Latency target
-hit with merge_and_unload + image cap + vLLM at deploy time.
+**Status**: trained, evaluated at 63.41% field accuracy (-6pp vs Claude),
+beats Claude on warning false-flag rate (+2pp). Modal deploy is ready.
 
-**Risk**: 3-4 hr training cost. If accuracy stays below 60% on field
-extraction, abandon and pivot.
+**Next gain**: hand-curate 100-200 hard examples + retrain → expected
+field accuracy 63% → 75-80% (closes the rest of the gap).
 
-**Decision gate**: after this run, `make eval-replay-qwen` must show
-≥55% field accuracy AND ≤5s latency to keep investing.
+**Decision gate**: if `make eval-replay-qwen` rerun lands ≥70% field
+accuracy after training-data top-up, this is the production candidate.
 
 ### 2. InternVL3-2B BF16 — second (best speed-to-accuracy ratio)
 
@@ -52,7 +51,7 @@ deployment candidate.
 on agency hardware with no GPU" pitch.
 
 **Risk**: High accuracy variance — could be amazing or could still struggle
-with parse rate. The 4-bit Qwen result suggests fine-tuning quality is
+with parse rate. The Qwen result suggests fine-tuning quality is
 non-trivial for this task even with focused models.
 
 **Decision gate**: if v1 parse rate problem repeats (≥30% unparseable),
