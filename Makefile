@@ -14,6 +14,7 @@ PORT     ?= 8000
         eval-replay-qwen eval-replay-internvl3 eval-replay-donut eval-compare-all \
         serve-mock serve-cloud serve-max serve-sft-qwen serve-modal \
         modal-deploy modal-upload-adapter \
+        demo-single demo-batch demo-all \
         build-eval-data clean
 
 help:
@@ -35,6 +36,9 @@ help:
 	@echo "  serve-modal     Run backend routing inference to a Modal-hosted Qwen endpoint"
 	@echo "  modal-deploy    Deploy backend/modal_deploy/serve_qwen.py to Modal"
 	@echo "  modal-upload-adapter  Upload trained LoRA adapter to Modal's persistent volume"
+	@echo "  demo-single      Run 3 single-label demos (one per verdict bucket) against local backend"
+	@echo "  demo-batch       Run the 9-label batch demo against local backend"
+	@echo "  demo-all         Run every single-label demo + the batch (full manual test sweep)"
 	@echo "  clean           Remove caches"
 
 install:
@@ -134,6 +138,29 @@ SFT_MODEL_DIR ?= backend/models/qwen2_5_vl_7b
 modal-upload-adapter:
 	modal volume create ttb-qwen-adapter 2>/dev/null || true
 	modal volume put --force ttb-qwen-adapter $(SFT_MODEL_DIR)/adapter /adapter
+
+# Manual demo scripts — exercise every verdict bucket against a running backend.
+# Requires `make serve-mock` (or serve-cloud / serve-modal) running on :8000.
+# See test/manual/README.md for full details.
+
+demo-single:
+	@echo "Demoing 3 single-label requests — one per verdict bucket"
+	@echo "(start the backend in another terminal: make serve-mock)"
+	@echo
+	bash test/manual/single_01_1_old_tom_spirits_auto_pass.sh                | tail -3
+	@echo "..."
+	bash test/manual/single_02_2_stones_throw_wine_needs_confirm.sh          | tail -3
+	@echo "..."
+	bash test/manual/single_04_4_cedar_sage_missing_warning_needs_review.sh  | tail -3
+
+demo-batch:
+	bash test/manual/batch_all_9.sh
+
+# All 9 single-label demos + the all-9 batch in one shot
+demo-all:
+	@for f in test/manual/single_*.sh; do bash "$$f" | tail -1; done
+	@echo
+	bash test/manual/batch_all_9.sh
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
