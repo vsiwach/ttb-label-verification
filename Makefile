@@ -113,7 +113,7 @@ serve-max:
 # base (~14 GB unified memory) and runs slow (~30-60s/image). On CUDA hosts
 # loads in 4-bit and matches training-time speed.
 serve-sft-qwen:
-	cd backend && INFERENCE_MODE=sft SFT_MODEL_DIR=models/qwen2_5_vl_7b ANTHROPIC_API_KEY="" \
+	cd backend && INFERENCE_MODE=sft SFT_MODEL_DIR=models/qwen2_5_vl_7b_bf16 ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
 # Routes extraction to a Modal-hosted Qwen endpoint. No GPU or heavy ML deps
@@ -129,10 +129,12 @@ modal-deploy:
 	modal deploy backend/modal_deploy/serve_qwen.py
 
 # Upload the trained LoRA adapter to Modal's persistent volume.
-# Idempotent — re-running with new weights overwrites the volume contents.
+# Defaults to the BF16-trained adapter (the shipping model). Override with
+# SFT_MODEL_DIR=... if you want to test the 4-bit baseline instead.
+SFT_MODEL_DIR ?= backend/models/qwen2_5_vl_7b_bf16
 modal-upload-adapter:
 	modal volume create ttb-qwen-adapter 2>/dev/null || true
-	modal volume put --force ttb-qwen-adapter backend/models/qwen2_5_vl_7b/adapter /adapter
+	modal volume put --force ttb-qwen-adapter $(SFT_MODEL_DIR)/adapter /adapter
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

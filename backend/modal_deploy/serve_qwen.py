@@ -5,7 +5,9 @@ One-time setup (locally):
     modal token new                           # auth
     modal volume create ttb-qwen-adapter      # adapter weights live here
     modal volume put ttb-qwen-adapter \\
-        backend/models/qwen2_5_vl_7b/adapter /adapter
+        backend/models/qwen2_5_vl_7b_bf16/adapter /adapter
+    # Note: serves the BF16-trained adapter. The earlier 4-bit Unsloth adapter
+    # at backend/models/qwen2_5_vl_7b/adapter is kept for A/B comparison only.
 
 Deploy:
     modal deploy backend/modal_deploy/serve_qwen.py
@@ -32,11 +34,13 @@ import modal
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
-        "transformers==4.47.1",      # last known-good for Qwen2.5-VL config loading
-        "peft==0.13.2",
-        "accelerate==1.0.1",
-        "bitsandbytes>=0.44",
-        "torch==2.5.1",
+        # Matches notebooks/eval_qwen_drive.ipynb stack — verified end-to-end:
+        "transformers==4.51.3",       # has Qwen2.5-VL + 4.49 config-regression fix
+        "peft>=0.13",
+        "torchao>=0.16",              # peft asserts this
+        "accelerate>=0.30",
+        "protobuf>=5.27",             # transformers 4.48+ needs runtime_version
+        "torch>=2.5",
         "pillow",
         "fastapi[standard]",
         "numpy>=2.0,<2.2",
@@ -85,30 +89,32 @@ class QwenExtractor:
         from transformers import (
             Qwen2_5_VLForConditionalGeneration,
             AutoProcessor,
-            BitsAndBytesConfig,
         )
 
-        BASE_MODEL = "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit"
+        # Match the BF16 training setup (notebooks/sft_qwen2_5_vl.ipynb):
+        # official Qwen base loaded in BF16 (not bnb-4bit), then LoRA applied.
+        # Critical: training-time dtype MUST match inference-time dtype or the
+        # LoRA contribution is subtly off (the 4-bit + BF16 mismatch was the
+        # bug that produced the bad apples-to-apples result).
+        BASE_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
         ADAPTER_DIR = "/adapter"
 
-        print(f"[Modal] Loading {BASE_MODEL}...")
-        bnb = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-        )
+        print(f"[Modal] Loading {BASE_MODEL} (BF16)...")
         base = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             BASE_MODEL,
-            quantization_config=bnb,
             torch_dtype=torch.bfloat16,
             device_map="auto",
+            attn_implementation="sdpa",
         )
         print(f"[Modal] Applying LoRA adapter from {ADAPTER_DIR}...")
         self.model = PeftModel.from_pretrained(base, ADAPTER_DIR)
+        # Merge LoRA into base for inference — safe in BF16, eliminates the
+        # ~15% per-call LoRA overhead. We're done training, won't need to
+        # save the adapter back, so destroying the PEFT wrapper is fine.
+        self.model = self.model.merge_and_unload()
         self.model.eval()
-        self.processor = AutoProcessor.from_pretrained(ADAPTER_DIR)
-        print("[Modal] Ready.")
+        self.processor = AutoProcessor.from_pretrained(BASE_MODEL)
+        print(f"[Modal] Ready. Free VRAM: {torch.cuda.mem_get_info()[0]/1e9:.1f} GB")
 
     @modal.method()
     def extract(self, image_bytes: bytes, beverage_type: str) -> dict:
@@ -118,7 +124,21 @@ class QwenExtractor:
         from PIL import Image
 
         t0 = time.time()
+        # Cap image resolution: Qwen2.5-VL otherwise tiles at native res and
+        # generates 4000+ visual tokens per image → quadratic-slow attention.
+        # 640x640 area = ~400 visual tokens, plenty for label OCR, ~3s/image
+        # on A10G instead of ~12s. Matches the eval notebook's _resize_for_eval.
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        MAX_PIXELS = 640 * 640
+        w, h = img.size
+        if w * h > MAX_PIXELS:
+            scale = (MAX_PIXELS / (w * h)) ** 0.5
+            img = img.resize((max(int(w * scale), 28), max(int(h * scale), 28)), Image.LANCZOS)
+        w, h = img.size
+        w28, h28 = max((w // 28) * 28, 28), max((h // 28) * 28, 28)
+        if (w28, h28) != (w, h):
+            img = img.resize((w28, h28), Image.LANCZOS)
+
         msgs = [
             {"role": "system", "content": [{"type": "text", "text": _SYSTEM_PROMPT}]},
             {"role": "user",   "content": [
@@ -127,9 +147,16 @@ class QwenExtractor:
             ]},
         ]
         text = self.processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-        inputs = self.processor(text=text, images=[img], return_tensors="pt").to(self.model.device)
+        inputs = self.processor(text=[text], images=[img], padding=True, return_tensors="pt").to(self.model.device)
         with torch.no_grad():
-            out = self.model.generate(**inputs, max_new_tokens=512, do_sample=False)
+            out = self.model.generate(
+                **inputs,
+                max_new_tokens=384,       # tight cap; our outputs are ~200-300 tokens
+                do_sample=False,
+                temperature=None,
+                top_p=None,
+                pad_token_id=self.processor.tokenizer.eos_token_id,
+            )
         decoded = self.processor.batch_decode(
             out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True
         )[0]
