@@ -1,0 +1,512 @@
+# Design Document — TTB Label Verification
+
+A web-based assistant for U.S. Treasury TTB alcohol label compliance review.
+COLA submissions are checked against 27 CFR Parts 4 / 5 / 7 (mandatory fields)
+and Part 16 (Government Warning) by a deterministic rules engine that
+consumes per-label observations from a swappable vision-language extractor.
+
+The architecture is built around a single invariant: **the AI reads, the
+rules decide.** Every match / likely / flag decision and every compliance
+verdict cites the regulation that produced it.
+
+## Table of contents
+
+1. [System architecture](#1-system-architecture)
+2. [Frontend](#2-frontend)
+3. [Backend](#3-backend)
+4. [Models (inference modes)](#4-models-inference-modes)
+5. [User flow — single label (with HITL)](#5-user-flow--single-label-with-hitl)
+6. [User flow — batch upload (with HITL triage)](#6-user-flow--batch-upload-with-hitl-triage)
+7. [Data](#7-data)
+8. [Test strategy](#8-test-strategy)
+9. [Deployment](#9-deployment)
+
+---
+
+## 1. System architecture
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  Browser — React + Vite (src/)                                     │
+│  ├─ /upload     single-label submission + form                     │
+│  ├─ /result     verdict + per-field cards + warning panel          │
+│  ├─ /batch      batch dashboard (grouped by verdict bucket)        │
+│  └─ /review     batch review queue (HITL workflow)                 │
+└──────────────────────────────┬─────────────────────────────────────┘
+                               │ multipart POST /api/verify or /verify-batch
+                               ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  Backend — FastAPI (backend/app/)                                  │
+│                                                                    │
+│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐  │
+│  │ image_pipeline   │ │  LabelExtractor  │ │  rules engine    │  │
+│  │ • validate       │→│  (swappable)     │→│  (deterministic) │  │
+│  │ • measure        │ │  • mock          │ │  • field_match   │  │
+│  │ • legibility     │ │  • cloud Claude  │ │  • gov warning   │  │
+│  │ • ephemeral crop │ │  • claude-code   │ │  • mandatory     │  │
+│  └──────────────────┘ │  • onprem (OCR)  │ │  • net contents  │  │
+│                       │  • sft (Qwen LoRA)│ │  • citations     │  │
+│                       │  • modal (Qwen on│ └────────┬─────────┘  │
+│                       │    Modal A10G)    │          ▼            │
+│                       └──────────────────┘  VerificationResult    │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+                               │ JSON: fields + governmentWarning + imageQuality
+                               ▼
+                       Verdict bucketing — group_for()
+                       ├─ auto-pass    (all fields match + warning verbatim)
+                       ├─ needs-confirm (any field likely)
+                       └─ needs-review (any field flag, or warning issue)
+```
+
+**Key separation of concerns:**
+
+- **Extractor** only reads + reports observations (`fields`, `government_warning`, `image_quality`). It never decides compliance.
+- **Rules engine** is pure Python with no AI calls. Every decision is auditable + cites 27 CFR.
+- **Frontend** renders verdicts. It does not interpret regulation — that's the engine's job.
+
+## 2. Frontend
+
+**Stack:** React 18 + TypeScript + Vite + Tailwind + React Router. Single
+SPA built to a static bundle (Vercel-deployable).
+
+### Routes (src/App.tsx)
+
+| Route | Page component | Purpose |
+|---|---|---|
+| `/` and `/upload` | `UploadPage.tsx` | Single-label submission: image dropzone + COLA application form |
+| `/result` | `ResultPage.tsx` | Per-label verdict view: field cards, warning panel, regulatory citations |
+| `/batch` | `BatchPage.tsx` | Batch dashboard: grouped item counts, drill-down into each group |
+| `/review` | `ReviewPage.tsx` | HITL queue: walks the operator through `needs-review` items |
+| `/system` | `SystemPage.tsx` | Architecture explainer + system status |
+| `/styleguide`, `/api-demo` | (dev pages) | Component gallery + API request/response viewer |
+
+### API client (src/api/client.ts)
+
+Two functions mirror the backend:
+
+```ts
+export async function verifyLabel(
+    image: File,
+    applicationData: ApplicationData,
+    callbacks?: { onField, onWarning, onDone }
+): Promise<VerificationResult>;
+
+export async function verifyBatch(
+    images: File[],
+    applicationData?: ApplicationData,
+    callbacks?: { onItem }
+): Promise<BatchItemResult[]>;
+```
+
+**Auto-mock:** when `VITE_API_BASE_URL` is empty, `client.ts` returns fixture
+data from `mockData.ts` — frontend development needs no backend running.
+When set (e.g. `http://localhost:8000/api`), real requests fly.
+
+### Components (src/components/)
+
+| Component | Renders |
+|---|---|
+| `FileDropzone` | Drag-and-drop or click-to-browse upload with preview |
+| `FieldRow` | One mandatory field: declared value, extracted value, status badge, regulation cite, note |
+| `GovernmentWarningPanel` | Warning verbatim text + style observations (caps/bold/font) with explicit pass/fail per check |
+| `StatusBadge` | Color-coded `match` / `likely` / `flag` with icon |
+| `Verdict` | Top-of-page verdict bucket: `auto-pass` (green) / `needs-confirm` (amber) / `needs-review` (red) |
+| `DecisionPanel` | Operator action surface: "Approve" / "Confirm" / "Escalate" buttons with audit trail |
+| `Alert`, `Card`, `Skeleton`, `Button` | Generic primitives |
+
+## 3. Backend
+
+**Stack:** Python 3.13 + FastAPI + Pydantic v2 + uvicorn. Pure async I/O —
+the rules engine itself is sync but called via `asyncio.run_in_executor`.
+
+### Endpoints (backend/app/main.py)
+
+```
+GET  /health                       → { status, inferenceMode }
+GET  /crops/{crop_id}              → image bytes (ephemeral, in-memory, 5-min TTL)
+POST /api/verify                   multipart(image, applicationData) → VerificationResult
+POST /api/verify-batch             multipart(images[], applicationData?) → BatchItemResult[]
+```
+
+### Request pipeline (single label)
+
+```python
+async def _run_pipeline(image_bytes, app_data):
+    measurement = image_pipeline.assess_image(image_bytes)     # validate + measure
+    if not measurement.legible:
+        return _route_to_needs_review(reason="image illegible")
+    extracted = await get_extractor().extract(image_bytes, app_data.beverageType)
+    return rules.engine.verify(extracted=extracted, app=app_data)
+```
+
+The same pipeline runs for batch items, with bounded concurrency
+(`asyncio.Semaphore(_BATCH_CONCURRENCY)`).
+
+### Modules
+
+| Module | Responsibility | LOC |
+|---|---|---|
+| `main.py` | FastAPI app, route handlers, request orchestration, CORS | ~250 |
+| `models.py` | Pydantic schemas (`VerificationField`, `GovernmentWarningAnalysis`, `VerificationResult`, `ApplicationData`, `BatchItemResult`) + `group_for()` | ~100 |
+| `image_pipeline.py` | Pillow-based image validation + legibility scoring + ephemeral evidence crop store | ~170 |
+| `extractors/base.py` | `LabelExtractor` ABC + `ExtractedLabel` / `ExtractedField` / `WarningStyle` dataclasses | ~70 |
+| `extractors/factory.py` | Returns the right extractor based on `INFERENCE_MODE` | ~50 |
+| `extractors/{mock,cloud,claude_code,onprem,sft,modal_remote}.py` | Six interchangeable implementations of the same interface | varies |
+| `rules/engine.py` | Top-level `verify()`: walks mandatory fields, classifies each, calls warning analyzer, returns `VerificationResult` | ~530 |
+| `rules/field_match.py` | Per-field 3-state classifier with graduated tolerance (ABV ±0.3%, net contents ≤2%, etc.) | ~250 |
+| `rules/government_warning.py` | Verbatim comparison + style observation gating per 27 CFR 16.21/16.22 | ~200 |
+| `rules/mandatory_fields.py` | Beverage-type → required field list mapping (spirits 5.63 / wine 4.32 / malt 7.63) | ~100 |
+| `rules/net_contents.py` | Multi-unit parsing (mL / L / FL OZ / pint) for semantic equivalence | ~60 |
+| `rules/citations.py` | Field name → 27 CFR section lookup | ~30 |
+| `constants.py` | `VERBATIM_GOVERNMENT_WARNING` canonical text (single source of truth) | ~20 |
+
+### `VerificationResult` schema
+
+```python
+class VerificationField(BaseModel):
+    fieldName: str           # "Brand name", "Alcohol content", etc.
+    declaredValue: str       # from COLA application
+    extractedValue: str      # from the model
+    status: Literal["match", "likely", "flag"]
+    confidence: float
+    evidenceCropUrl: str | None    # /crops/<id> if a crop bbox was provided
+    regulationCite: str            # "27 CFR 4.32" etc.
+    note: str | None
+
+class GovernmentWarningAnalysis(BaseModel):
+    present: bool
+    verbatimMatch: bool
+    casingBoldOk: bool       # GOVERNMENT WARNING in caps AND body not bold
+    fontSizeOk: bool         # ≥1mm/2mm/3mm by container per 16.22
+    contrastOk: bool
+    separateAndApart: bool
+    deviations: list[WarningDeviation]    # typed list with citations
+
+class VerificationResult(BaseModel):
+    fields: list[VerificationField]
+    governmentWarning: GovernmentWarningAnalysis
+    imageQuality: ImageQuality
+
+# Verdict bucketing — same logic on frontend and backend
+def group_for(result) -> Literal["auto-pass", "needs-confirm", "needs-review"]:
+    if any(f.status == "flag" for f in result.fields):                  return "needs-review"
+    if not result.governmentWarning.present:                            return "needs-review"
+    if not result.governmentWarning.verbatimMatch:                      return "needs-review"
+    if any(f.status == "likely" for f in result.fields):                return "needs-confirm"
+    if not result.governmentWarning.casingBoldOk:                       return "needs-confirm"
+    return "auto-pass"
+```
+
+## 4. Models (inference modes)
+
+Selected by `INFERENCE_MODE` env var. All implement `LabelExtractor.extract(image_bytes, beverage_type) -> ExtractedLabel`.
+
+| Mode | When to use | Latency | Cost | Supply chain |
+|---|---|---|---|---|
+| `mock` | Local frontend dev, deterministic CI | ~0 s | $0 | n/a |
+| `cloud` | Claude Vision via Anthropic API; current production accuracy ceiling | ~8 s | $0.005/label | US (Anthropic) |
+| `claude-code` | Same model via Claude Code CLI; bills against Max subscription instead of API | ~30 s | flat-rate (Max plan) | US |
+| `onprem` | Tesseract OCR + optional self-hosted Phi-3.5-vision on Ollama; air-gapped agency networks | varies | $0 (existing hardware) | US (Microsoft) |
+| `sft` | Locally-loaded Qwen2.5-VL LoRA in BF16. Direct transformers + peft. CUDA, MPS, or CPU | ~3-10 s | $0 marginal | China (Alibaba) — reference; replace for prod |
+| `modal` | Same Qwen LoRA served on Modal A10G; scale-to-zero; HTTPS endpoint | ~3-5 s (warm) | ~$0.001/req | China (Alibaba) — reference |
+
+### How the SFT path produces an `ExtractedLabel`
+
+```
+image_bytes
+   │
+   ├── PIL resize to ≤640×640 area (caps visual-token count at ~400)
+   │
+   ├── apply_chat_template with the canonical SYSTEM_PROMPT (forbids
+   │   snake_case field names; mandates exact schema keys)
+   │
+   ├── Qwen2.5-VL-7B (BF16) + LoRA adapter (merged into base at load
+   │   time → eliminates per-call LoRA overhead)
+   │
+   ├── model.generate(max_new_tokens=384, do_sample=False)
+   │
+   ├── _try_parse_json (best-effort: strips markdown fences, smart quotes,
+   │   trailing commas, balances missing braces, walks back to find
+   │   longest valid JSON prefix)
+   │
+   └── _to_extracted_label
+       ├── _canonicalize_field_name (snake_case → canonical: ~60 aliases)
+       ├── _coerce_confidence (handles 'high'/'90%'/0.9/None)
+       └── ExtractedLabel
+```
+
+**Current Qwen LoRA performance** (`test/eval/QWEN_VS_CLAUDE.md`):
+- Field extraction 63.41% (Claude 69.83%, gap -6pp)
+- Warning false-flag rate 25% — **beats Claude (27%)**
+- Latency mean 10.8 s in transformers; ~3-5 s achievable with Modal + vLLM
+
+## 5. User flow — single label (with HITL)
+
+```
+┌──────┐    1. fill form +     ┌────────────┐    2. POST /api/verify     ┌──────────┐
+│Agent │ ─→ drop image  ─────→ │ /upload    │ ─→ multipart       ─────→  │ Backend  │
+└──────┘                       └────────────┘                            └────┬─────┘
+                                                                              │
+                          ┌───────────────────────────────────────────────────┘
+                          │ (image_pipeline → extractor → rules engine)
+                          ▼
+                ┌───────────────────────────┐
+                │  VerificationResult       │
+                │  + group ∈ {auto-pass,    │
+                │             needs-confirm,│
+                │             needs-review} │
+                └─────────────┬─────────────┘
+                              │
+                              ▼
+                  ┌───────────────────────┐    3. Render /result
+                  │  Browser /result      │    • verdict banner (color)
+                  │                       │    • per-field cards
+                  │                       │    • warning panel
+                  └───────────┬───────────┘
+                              │
+                              ▼
+              HITL decision point (DecisionPanel)
+              │
+              ├─ group=auto-pass:    Agent clicks "Approve"
+              │                      (one-click — no agent attention needed
+              │                      beyond the green badge confirmation)
+              │
+              ├─ group=needs-confirm: Agent clicks "Confirm" or "Override"
+              │                      (typically 5-15 sec of scanning each
+              │                      "likely" field's declared vs extracted
+              │                      value; engine's tolerance kept this out
+              │                      of needs-review)
+              │
+              └─ group=needs-review:  Agent reads the engine's flag reason,
+                                     looks at the image, makes a substantive
+                                     decision (approve with note / send back
+                                     to applicant / escalate). 1-5 min.
+```
+
+### HITL principles baked into the engine
+
+1. **The engine is conservative.** When in doubt it routes UP (auto-pass → needs-confirm → needs-review), never down. A field can only be `match` with high-confidence evidence.
+2. **Low-confidence extractions are demoted.** A `match` from an extractor with confidence < 0.60 becomes `likely` (forces agent review).
+3. **Missing fields don't auto-fail.** A field declared on the COLA but not visible on this panel becomes `likely` with a note — multi-image labels often have the field on another panel.
+4. **Engine never explains away a warning.** If `casing_all_caps=False` is reported, the engine flags `casing` deviation regardless of how high the field-extraction confidence was.
+5. **Every status has a regulation cite.** The agent sees not just "this is flagged" but "this is flagged under 27 CFR 4.32(a)(1)".
+
+## 6. User flow — batch upload (with HITL triage)
+
+```
+┌──────┐    drop N images       ┌────────────┐    POST /api/verify-batch    ┌──────────┐
+│Agent │ ─→ (with optional ─→   │ /batch     │ ─→ multipart images[]  ─→    │ Backend  │
+└──────┘    shared app data)    └────────────┘                              └────┬─────┘
+                                                                                 │
+                          ┌──────────────────────────────────────────────────────┘
+                          │ asyncio.Semaphore(_BATCH_CONCURRENCY) bounds parallel extractor calls
+                          ▼
+                ┌─────────────────────────────────────┐
+                │  list[BatchItemResult]               │
+                │    each item has:                    │
+                │      index, fileName, result, group  │
+                │    failed items get group=needs-review│
+                │    + synthetic flag (no partial fail)│
+                └────────────────┬─────────────────────┘
+                                 │
+                                 ▼
+                  ┌──────────────────────────────────┐
+                  │  Browser /batch                  │
+                  │                                  │
+                  │  ┌──────────┐ ┌──────────────┐  │
+                  │  │auto-pass │ │needs-confirm │  │ ←─ grouped counts
+                  │  │   N      │ │     N        │  │
+                  │  └──────────┘ └──────────────┘  │
+                  │                                  │
+                  │  ┌────────────────┐              │
+                  │  │ needs-review N │              │
+                  │  └────────────────┘              │
+                  │                                  │
+                  │  [Review →]                      │
+                  └────────────┬─────────────────────┘
+                               │
+                               ▼ click into a bucket
+                  ┌──────────────────────────────────┐
+                  │  Browser /review                 │
+                  │  walk through items one at a     │
+                  │  time, with the per-label HITL   │
+                  │  decision panel from §5          │
+                  │  + Next/Prev navigation          │
+                  └──────────────────────────────────┘
+```
+
+### Batch concurrency + failure isolation
+
+- `_BATCH_CONCURRENCY` is set per inference mode (e.g. 8 for mock, 2 for cloud to respect rate limits).
+- A failed item (extractor timeout, malformed image, etc.) does NOT fail the whole batch. The item is returned with `group=needs-review` and a synthetic `flag` field containing the error reason → operator sees it in the dashboard, no batch retry needed.
+
+### Triage productivity model
+
+With a 100-label batch and the current Qwen-LoRA accuracy mix:
+
+| Bucket | Typical share | Agent time / item | Total |
+|---|---|---|---|
+| auto-pass | ~50% (target after data top-up) | ~5 s confirm | 4 min |
+| needs-confirm | ~30% | ~15 s glance + click | 7.5 min |
+| needs-review | ~20% | ~3 min substantive review | 60 min |
+| **Total** | **100%** |  | **~72 min vs ~5 hr unassisted** |
+
+The auto-pass rate is the headline productivity metric. The current SFT
+auto-pass rate is 0% (model emits `likely` instead of `match` — close but
+not exact); Claude's is 5%. Both need a training-data quality top-up to
+push past the distillation ceiling.
+
+## 7. Data
+
+### Training data (for the SFT extractor)
+
+- **COLA Cloud free sample** (https://colacloud.us, CC0): ~1,000 COLA applications, ~1,750 label images. Per-image OCR via Google Vision, per-COLA category metadata via GPT-4o. Subset of the official TTB Public COLA Registry.
+- **Group-aware train/val/test split** (notebooks/sft_*.ipynb cell 15): images are grouped by parent `TTB_ID` (one COLA may have front/back/strip images) and split 80/10/10 at the COLA level — guarantees no image leak between train and test.
+- Training targets are JSON in the same shape as `ExtractedLabel`, with canonical field names enforced by the SYSTEM_PROMPT.
+
+### Ground truth for the rules engine
+
+- `backend/app/constants.py::VERBATIM_GOVERNMENT_WARNING` — the canonical 27 CFR 16.21 text. Single source of truth; any change here flows through to all checks.
+- `backend/app/rules/citations.py` — maps each field name to its 27 CFR section (4.32 / 5.63 / 7.63 etc.).
+- `backend/app/rules/mandatory_fields.py` — beverage-type → required-field-list mapping. Spirits + wine require ABV; beer + malt do not (unless added flavors trigger ABV disclosure).
+
+### Evaluation data
+
+- `test/eval/data/cola_sample.csv` (~90 hand-curated rows from COLA Cloud, with `expected_outcome` per row) — drives `make eval-real` against any backend mode.
+- `test/synthetic/expected_results.json` — 9 deterministic synthetic fixtures (mutations injected into known-good labels) for the 100%-pass CI gate.
+
+## 8. Test strategy
+
+**Total: 115 backend tests, all passing in 2.9 sec.**
+
+### Layered approach
+
+| Layer | What it tests | Test count |
+|---|---|---|
+| Rules engine units | Each classifier in isolation (`field_match`, `government_warning`, `net_contents`, `mandatory_fields`, `image_pipeline`) | 67 tests |
+| Engine integration | Full `verify()` over diverse inputs | 24 tests |
+| HTTP endpoints | `/api/verify` + `/api/verify-batch` via FastAPI TestClient | 10 tests |
+| SFT-specific | Field aliasing, confidence coercion, JSON parser recovery (markdown fences, truncated braces, smart quotes), manifest dispatch | 27 tests |
+| SFT replay e2e | Stubbed Qwen output → SFTExtractor → rules engine → expected VerificationResult shape | 5 tests |
+| Modal remote | Mocked-HTTP path to the Modal endpoint (happy / unparseable / 500 / endpoint-error) | 5 tests |
+| Synthetic CI gate | Spins up its own mock backend, runs 9 synthetic fixtures end-to-end, asserts 100% | 1 test (wraps the harness) |
+
+### Single-label tests (representative)
+
+```python
+# backend/tests/test_endpoints.py
+def test_verify_returns_typed_verification_result(client):
+    response = client.post("/api/verify",
+        files={"image": ("label.webp", _png_bytes(), "image/webp")},
+        data={"applicationData": json.dumps(VALID_APP_DATA)})
+    assert response.status_code == 200
+    body = response.json()
+    assert "fields" in body and "governmentWarning" in body
+    assert all("regulationCite" in f for f in body["fields"])
+
+def test_verify_routes_substantive_mismatch_to_needs_review(client):
+    # ABV 40% on the app vs ~13% on the label → field flag → needs-review
+    ...
+```
+
+### Batch tests (representative)
+
+```python
+# backend/tests/test_endpoints.py
+def test_verify_batch_concurrent_with_per_item_isolation(client):
+    response = client.post("/api/verify-batch",
+        files=[("images", (f"label-{i}.webp", _png_bytes(), "image/webp"))
+               for i in range(8)])
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 8
+    assert all("group" in item for item in items)
+
+def test_verify_batch_failed_item_does_not_fail_batch(client):
+    # Inject one malformed image; assert the other 7 still return successfully
+    # and the failed one comes back with group=needs-review
+    ...
+```
+
+### Synthetic CI gate (`test/eval/run_eval.py --synthetic ...`)
+
+Boots a fresh mock backend and asserts that 9 hand-crafted fixtures
+(intentionally mutated labels: missing field, ABV off by 5%, warning
+paraphrased, casing wrong, etc.) ALL produce the expected verdict.
+Wrapped as `tests/test_eval_synthetic.py` so it runs in `pytest`.
+
+### Real-data eval (`make eval-real` / `make eval-replay-{model}`)
+
+NOT a hard gate (accuracy is AI-bounded). Produces:
+
+| File | Generated by | What it captures |
+|---|---|---|
+| `test/eval/report.json` | `make eval-real` against Claude in cloud mode | Baseline Claude per-field + verdict accuracy on 90-image hand-curated set |
+| `test/eval/qwen_report.json` | `make eval-replay-qwen` from a Colab-generated JSONL | Apples-to-apples Qwen LoRA on the same 90 images |
+| `test/eval/QWEN_VS_CLAUDE.md` | Manual writeup | Side-by-side analysis + strategic implications |
+
+The replay path lets us evaluate any model that produces a JSONL fixture
+WITHOUT hosting that model locally — heavy GPU inference happens once on
+Colab, scoring happens locally through the actual rules engine. See
+`test/eval/replay_extractions.py`.
+
+## 9. Deployment
+
+### Frontend
+- Static bundle from `npm run build` → Vercel (or any static host).
+- One env var: `VITE_API_BASE_URL` points the SPA at the backend (e.g. `https://api.example.com/api`).
+
+### Backend (Claude-only path)
+- FastAPI in `mock` or `cloud` or `claude-code` mode runs on any small CPU host (Render, Fly.io, Azure App Service, Docker container on a Mac mini).
+- `backend/Dockerfile` is the cloud-mode variant.
+
+### Backend + SFT (production candidate)
+- Backend in `modal` mode → calls a Modal-hosted Qwen endpoint over HTTPS.
+- See `docs/DEPLOY_RUNBOOK.md` for the 5-step `make modal-upload-adapter` → `make modal-deploy` → wire `MODAL_ENDPOINT_URL` runbook.
+- Modal A10G scale-to-zero: **$0/hr idle**, ~$0.001/inference active.
+
+### Backend on agency hardware (FedRAMP)
+- Same Docker image runs inside Azure Gov / AWS GovCloud / on-prem.
+- `INFERENCE_MODE=sft` loads the LoRA adapter from `backend/models/qwen2_5_vl_7b/adapter/` on a local GPU (A10G or better).
+- No outbound network calls — everything stays inside the boundary.
+- Rules engine runs identically regardless of mode (it's the durable value).
+
+## Appendix: file/module index
+
+```
+src/                                  # React + Vite + TS frontend
+├── api/
+│   ├── client.ts                     # verifyLabel + verifyBatch (HTTP)
+│   ├── types.ts                      # shared with backend models
+│   ├── mockData.ts                   # offline-dev fixtures
+│   └── ttbRules.ts                   # groupFor() (mirrors backend)
+├── pages/                            # 7 routes
+└── components/                       # 11 reusable pieces
+
+backend/
+├── app/
+│   ├── main.py                       # FastAPI app + routes
+│   ├── models.py                     # Pydantic + group_for()
+│   ├── image_pipeline.py             # Pillow validation + ephemeral crops
+│   ├── extractors/                   # 6 swappable implementations
+│   └── rules/                        # deterministic 27 CFR engine
+├── modal_deploy/serve_qwen.py        # Qwen-on-Modal production endpoint
+├── tests/                            # 115 tests
+└── models/qwen2_5_vl_7b/adapter/     # LoRA weights (gitignored, 190 MB)
+
+notebooks/                            # SFT training + eval (Colab)
+├── sft_{qwen2_5_vl,internvl3_2b,donut_v2}.ipynb
+├── eval_{qwen,internvl3,donut}_drive.ipynb
+└── _apply_baselines.py               # propagate canonical SYSTEM_PROMPT
+
+test/
+├── eval/                             # real-data eval harness + reports
+└── synthetic/                        # 9-fixture deterministic CI gate
+
+docs/
+├── DESIGN.md                         # this document
+├── DEPLOY_RUNBOOK.md                 # Modal deployment steps
+├── MODEL_PRIORITY.md                 # model selection framework
+└── COVERAGE.md                       # per-field / per-rule coverage matrix
+```
