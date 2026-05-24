@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """End-to-end SFT-vs-Claude scoring — replay edition.
 
-Generic over any model whose Colab eval notebook produces a qwen_outputs.jsonl-
+Generic over any model whose Colab eval notebook produces a {model}_outputs.jsonl-
 style fixture (per-image raw_output + parsed_output). Currently used for:
-  - Qwen2.5-VL-7B LoRA   (notebooks/eval_qwen_drive_v2.ipynb)
+  - Qwen2.5-VL-7B LoRA   (notebooks/eval_qwen_drive.ipynb)
   - InternVL3-2B LoRA    (notebooks/eval_internvl3_drive.ipynb)
   - Donut v2 full FT     (notebooks/eval_donut_drive.ipynb)
 
@@ -288,7 +288,7 @@ def main() -> int:
     jsonl = Path(args.jsonl).expanduser()
     if not jsonl.exists():
         print(f"ERROR: --jsonl not found: {jsonl}", file=sys.stderr)
-        print("Run the Colab cell at notebooks/eval_qwen_on_claude_testset.py first;")
+        print("Run notebooks/eval_qwen_drive.ipynb in Colab first;")
         print("it downloads qwen_outputs.jsonl to ~/Downloads.")
         return 1
 

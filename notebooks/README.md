@@ -1,115 +1,122 @@
-# SFT notebooks — fine-tune an open-source VLM for TTB label extraction
+# SFT notebooks — fine-tune + evaluate open VLMs for TTB label extraction
 
-Two self-contained Colab notebooks that train a LoRA adapter on top of an
-open-weight vision-language model, using data pulled from the COLA Cloud
-free sample (CC0). The trained adapter integrates back into the FastAPI
-backend as a new `INFERENCE_MODE=sft` — no Anthropic API calls needed at
-inference time once the adapter is downloaded.
+Self-contained Colab notebooks that:
+1. Train a LoRA adapter (or full fine-tune for Donut) on top of an open-weight
+   vision-language model, using data pulled from the COLA Cloud free sample (CC0).
+2. Evaluate the trained adapter on the same test set Claude was scored on,
+   producing a JSONL fixture that the local rules engine then scores via
+   `make eval-replay-{model}`.
 
-| Notebook | Base model | Library | Active params | Realistic Colab time |
+Trained adapter integrates back into the FastAPI backend as `INFERENCE_MODE=sft`
+or `INFERENCE_MODE=modal` for production serving.
+
+## Inventory
+
+### Training (3 notebooks — pick one per model)
+
+| Notebook | Base model | Stack | Active params | Realistic Colab time |
 |---|---|---|---|---|
-| [`sft_qwen2_5_vl.ipynb`](sft_qwen2_5_vl.ipynb) | `unsloth/Qwen2.5-VL-7B-Instruct` | Unsloth + TRL | 7B | A100: ~3-4 hr · T4: skip (OOM) |
-| [`sft_kimi_vl.ipynb`](sft_kimi_vl.ipynb) | `moonshotai/Kimi-VL-A3B-Thinking-2506` | transformers + PEFT + TRL | 3B (16B MoE) | A100: ~2-3 hr · T4: ~5-6 hr |
+| [`sft_qwen2_5_vl.ipynb`](sft_qwen2_5_vl.ipynb) | `Qwen/Qwen2.5-VL-7B-Instruct` | transformers + peft + trl (BF16) | 7B | A100: ~3-4 hr |
+| [`sft_internvl3_2b.ipynb`](sft_internvl3_2b.ipynb) | `OpenGVLab/InternVL3-2B` | transformers + peft + trl (BF16) | 2B | A100: ~1-2 hr · T4: ~3 hr |
+| [`sft_donut_v2.ipynb`](sft_donut_v2.ipynb) | `naver-clova-ix/donut-base` | transformers + Trainer (BF16, full fine-tune, no LoRA) | 200M | A100: ~1.5 hr · T4: ~2 hr |
 
-## Why two
+### Eval (3 notebooks — one per trained model)
 
-Different bets, same eval harness — pick the winner head-to-head:
+| Notebook | Reads adapter from | Outputs |
+|---|---|---|
+| [`eval_qwen_drive.ipynb`](eval_qwen_drive.ipynb) | `MyDrive/ttb_sft/qwen2_5_vl_7b/adapter/` | `qwen_outputs.jsonl` |
+| [`eval_internvl3_drive.ipynb`](eval_internvl3_drive.ipynb) | `MyDrive/ttb_sft/internvl3_2b/adapter/` | `internvl3_outputs.jsonl` |
+| [`eval_donut_drive.ipynb`](eval_donut_drive.ipynb) | `MyDrive/ttb_sft/donut_v2/model/` | `donut_outputs.jsonl` |
 
-- **Qwen2.5-VL-7B (Unsloth)** — well-trodden recipe, mature fine-tuning ecosystem, strong on document/OCR benchmarks. Lower variance, faster to first checkpoint.
-- **Kimi-VL-A3B-Thinking** — newer, MIT-licensed, has built-in chain-of-thought reasoning. Smaller active params → fits on a T4 + faster inference at serve time. Upside bet on whether reasoning helps the brand-vs-fanciful / multi-language COO edge cases that bite Claude.
+### Utility
 
-## How to run
+| File | Purpose |
+|---|---|
+| [`_apply_baselines.py`](_apply_baselines.py) | Re-runnable script that propagates the canonical SYSTEM_PROMPT (and any future common-baseline updates) to every training + eval notebook. Idempotent. |
 
-1. Open Colab → File → Upload notebook → drag-drop one of the `.ipynb` files.
-2. `Runtime → Change runtime type → GPU`:
-   - For Qwen: **A100** (40 GB) required. Pro / Pro+ subscription.
-   - For Kimi: T4 (16 GB) works but slowly; A100 is faster.
-3. `Runtime → Run all`. The notebook is end-to-end automated:
-   - Mounts Google Drive (workspace at `/MyDrive/ttb_sft/{model_tag}/`)
-   - Pulls the COLA Cloud sample zip (~500 KB)
-   - Builds (image, structured-JSON) pairs from `BRAND_NAME`, `CLASS_NAME`, `PRODUCT_NAME`, `OCR_ABV`, `OCR_VOLUME`, `ORIGIN_NAME`, `OCR_TEXT`
-   - Downloads ~800 label images from the COLA Cloud CDN
-   - Splits 80/10/10 train/val/test (seeded for reproducibility)
-   - LoRA fine-tune (rank 16, attention + MLP projections), 3 epochs
-   - Per-field accuracy + warning-presence accuracy on the held-out test set
-   - Saves the adapter, processor config, and eval report to Drive
-   - **Zips everything and triggers a browser download** — adapter lands at `~/Downloads/ttb_sft_{model_tag}.zip` on your Mac
-4. Caffeinate your Mac so the tab stays alive. (`brew install caffeine` or `caffeinate -i &` in a terminal.)
+## Common baseline (consistent across all notebooks)
 
-## Running both in parallel
+Every notebook above uses the same verified-working stack and conventions:
 
-With Colab Pro you can have two simultaneous A100 sessions — open the Qwen notebook in one browser tab, the Kimi notebook in another. Each tab gets its own VM.
+- **transformers==4.51.3** — has Qwen2.5-VL + the 4.49 config-regression fix
+- **peft>=0.13 + torchao>=0.16** — peft 0.13+ asserts on torchao≥0.16
+- **protobuf>=5.27** — transformers 4.48+ needs `runtime_version`
+- **numpy>=2.0,<2.2** — wheel ABI sweet spot, with idempotent install + auto-restart
+- **BF16, not 4-bit** — matches inference quantization, avoids the rambling-output problem
+- **Group-aware train/val/test split** by COLA `TTB_ID` (no image leak across splits)
+- **Canonical field names** (`Brand name`, `Class & type`, etc.) enforced in SYSTEM_PROMPT to prevent snake_case drift
+- **Drive mount everywhere** — no browser uploads of the heavy adapter/model files
 
-On the free tier you're limited to one GPU session at a time. Either run them sequentially OR use two Google accounts (one notebook on each).
+## Priority — which model to train next
 
-## After training
+See [`docs/MODEL_PRIORITY.md`](../docs/MODEL_PRIORITY.md) for the full decision
+framework. TL;DR ordering:
 
-The Drive layout will look like:
+1. **Qwen2.5-VL-7B BF16** first — highest accuracy ceiling
+2. **InternVL3-2B BF16** second — best speed-to-accuracy + cheapest deployment
+3. **Donut v2** only if there's slack — high variance, smallest-model angle
 
-```
-/MyDrive/ttb_sft/{model_tag}/
-├── adapter/                  ← LoRA weights + processor + manifest.json
-├── checkpoints/              ← per-epoch checkpoints (drop after picking the best)
-├── splits/
-│   ├── train.jsonl
-│   ├── val.jsonl
-│   └── test.jsonl
-└── eval_report.json          ← per-field accuracy on the test set
-```
+## How to run a training notebook
 
-To integrate locally:
+1. Colab → File → Upload notebook → pick the `.ipynb` from this folder
+2. **Runtime → Change runtime type → A100 + High-RAM** → Save
+3. Runtime → Disconnect and delete runtime (clean VM)
+4. Runtime → **Run all** (1st click — installs deps, kernel auto-crashes; "session crashed" banner is expected)
+5. Runtime → **Run all** (2nd click — Drive permission dialog → accept; trains end-to-end)
+6. When training completes, the bundle auto-downloads to `~/Downloads/ttb_sft_{model}.zip` AND lands in `MyDrive/ttb_sft/{model}/`
+
+## How to run an eval notebook
+
+Prerequisite: the corresponding training notebook has completed and left the adapter in `MyDrive/ttb_sft/{model}/adapter/` (or `/model/` for Donut). Plus `MyDrive/ttb_sft/eval/cola_sample.csv` (upload once from `test/eval/data/cola_sample.csv`).
+
+1. Same Colab setup as training (A100 + High-RAM, clean runtime)
+2. Runtime → Run all (twice, for install dance)
+3. `{model}_outputs.jsonl` auto-downloads to `~/Downloads/`
+
+Then locally:
 
 ```bash
-# 1. Download adapter (use rclone / Google Drive desktop / browser)
-mkdir -p backend/models/{model_tag}
-cp -r '/Users/you/Google Drive/MyDrive/ttb_sft/{model_tag}/adapter/'* backend/models/{model_tag}/
-
-# 2. Once we add backend/app/extractors/sft.py:
-INFERENCE_MODE=sft SFT_MODEL_DIR=backend/models/{model_tag} \
-    make serve-sft   # to be added to Makefile
-
-# 3. Re-run the eval to compare head-to-head with Claude:
-make eval-real
+make eval-replay-qwen          # or eval-replay-internvl3 / eval-replay-donut
 ```
 
-## Data sources
+This scores the JSONL through the local rules engine (same metrics + same logic
+as Claude's `test/eval/report.json`), writes `test/eval/{model}_report.json`,
+and prints the side-by-side table.
 
-- **COLA Cloud free sample** (https://colacloud.us, CC0): 1,000 records, ~1,750 images, includes per-image OCR via Google Vision plus LLM-extracted category metadata. This is the primary training corpus. It's a clean subset of the official TTB Public COLA Registry.
-- **TTB data.gov "Public COLA Registry Search and Download"** (https://catalog.data.gov/dataset/ttb-public-cola-registry-search-and-download-extract-data-about-colas-that-meet-specified--cafd3): the linked resource turns out to be a wrapper around the interactive UI at `ttbonline.gov` — no public bulk CSV endpoint. If you later want more data, options are: (a) buy the COLA Cloud full corpus (2.6M records), (b) write a per-TTB-ID scraper against the public registry's detail pages (respect rate limits and terms), or (c) hand-annotate ~100 additional hard cases to push past Claude's distillation ceiling.
+After multiple models have eval reports:
 
-## Training targets — how we generate ground truth
-
-The notebooks synthesize a structured JSON target per (image, COLA row) pair from the dataset metadata:
-
-```jsonc
-{
-  "fields": {
-    "Brand name":          {"value": "Half Acre", "confidence": 0.95},
-    "Class & type":        {"value": "beer", "confidence": 0.95},
-    "Alcohol content":     {"value": "5.2% Alc./Vol.", "confidence": 0.92},  // from OCR_ABV
-    "Net contents":        {"value": "12 FL OZ", "confidence": 0.92},        // from OCR_VOLUME
-    "Bottler name/address": {"value": "Brewed by Half Acre, Chicago, Illinois", "confidence": 0.85},
-    "Country of origin":   {"value": "Product of Italy", "confidence": 0.85} // imports only
-  },
-  "government_warning": {
-    "present": true,
-    "detected_text": "GOVERNMENT WARNING: (1) ACCORDING TO THE SURGEON GENERAL ...",  // from OCR_TEXT
-    "casing_all_caps": true,
-    "heading_bold": true,
-    "body_bold": false,
-    "approx_font_mm": null,
-    "contrast_ok": true,
-    "separate_and_apart": true
-  },
-  "image_quality": {"score": 0.85, "legible": true, "note": null}
-}
+```bash
+make eval-compare-all          # aggregate side-by-side table
 ```
 
-The schema matches `backend/app/extractors/base.py::ExtractedLabel` exactly — the trained adapter is a drop-in replacement for the Claude path.
+## Updating the common baseline
+
+If you discover another shared fix (e.g. a new dep pin, or a stronger
+SYSTEM_PROMPT), edit it in `_apply_baselines.py` and re-run:
+
+```bash
+python3 notebooks/_apply_baselines.py
+```
+
+It's idempotent — safely re-applies to every notebook in the inventory.
+
+## Data + ground truth
+
+- **COLA Cloud free sample** (https://colacloud.us, CC0): ~1,000 COLA records, ~1,750 label images. Clean subset of the official TTB Public COLA Registry, with per-image OCR (Google Vision) + LLM-extracted category metadata.
+- Training targets are synthesized from the dataset metadata into a JSON schema that matches `backend/app/extractors/base.py::ExtractedLabel` exactly — the trained adapter is a drop-in replacement for the Claude path.
 
 ## Honest caveats
 
-- **Distillation ceiling**: a model trained against COLA Cloud's auto-generated labels is bounded by the quality of those labels. Google Vision OCR + GPT-4o (LLM_CATEGORY) make ~5-10% errors. To push past that ceiling you'd hand-verify ~100 hard cases (brand-vs-fanciful, multi-language COO, partial warnings) and append them to the training set.
-- **Domain narrowing**: the SFT'd model will be better at TTB labels than Claude *on similar artwork* and worse on unusual artwork. The rules engine still backstops with conservative routing.
-- **Realistic latency win**: Qwen2.5-VL-7B 4-bit on a single 4090 inferences at ~1.5 s/label. Kimi-VL-A3B at ~0.8 s/label. Vs Claude's ~10 s (API) or ~30 s (CLI).
-- **Best results need GPU at serve time**. Production deploy options: a small GPU host (Modal, Replicate, Banana), a TPU pod, or on-prem inside the agency boundary (matches the PRD's Phase-2 plan).
+- **Distillation ceiling**: training against COLA Cloud's auto-generated labels caps quality at the labels' ~5-10% error rate. To push past, hand-verify ~100 hard cases (brand-vs-fanciful, multi-language COO, partial warnings) and append to the training set.
+- **GPU required at serve time**: production deploy options are Modal/Replicate/Banana (cheap, scale-to-zero) or on-prem GPU inside the agency boundary (matches Treasury's FedRAMP/Azure-Gov pattern). See `backend/modal_deploy/serve_qwen.py` for a ready-to-deploy Modal script.
+
+## What we tried that didn't work (for posterity)
+
+These notebooks existed earlier in the session but were removed because the models proved unsuitable for SFT:
+
+| Model | Why dropped |
+|---|---|
+| Kimi-VL-A3B-Thinking | MoE + inference-only modeling code (`assert not self.training`) — training landmines |
+| Phi-3.5-vision | Microsoft's custom `modeling_phi3_v.py` drift vs current transformers; async CUDA asserts during training |
+
+The decision framework in [`docs/MODEL_PRIORITY.md`](../docs/MODEL_PRIORITY.md) explains why we now focus on Qwen, InternVL3, and Donut.

@@ -113,19 +113,14 @@ def apply_to(nb_path: Path) -> dict:
 
 
 TARGETS = [
-    # Training notebooks
+    # Training notebooks (all BF16, all use direct transformers + peft + trl)
     "notebooks/sft_qwen2_5_vl.ipynb",
     "notebooks/sft_internvl3_2b.ipynb",
     "notebooks/sft_donut_v2.ipynb",
-    # Eval notebooks
-    "notebooks/eval_qwen_drive_v2.ipynb",
+    # Eval notebooks (all use Drive mount + same JSONL output format)
+    "notebooks/eval_qwen_drive.ipynb",
     "notebooks/eval_internvl3_drive.ipynb",
     "notebooks/eval_donut_drive.ipynb",
-    # Old notebooks (deprecated but updated for consistency if SYSTEM_PROMPT exists)
-    "notebooks/sft_kimi_vl.ipynb",
-    "notebooks/sft_phi3_5_vision.ipynb",
-    "notebooks/eval_qwen_drive.ipynb",
-    "notebooks/eval_qwen_inference_only.ipynb",
 ]
 
 
