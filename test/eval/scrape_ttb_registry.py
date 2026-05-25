@@ -549,22 +549,32 @@ def scrape(
             row["origin_code"] = row["origin_code_basic"]
 
         # Images: download every panel, stitch into one composite for the
-        # engine. Save individual panels in a per-COLA subdir for debugging.
-        # Panels download in parallel (3 concurrent) — the bottleneck is
-        # TTB's per-image render time, not our request rate.
+        # engine. Panels download in parallel (3 concurrent) — bottleneck
+        # is TTB's per-image render time, not our request rate.
+        #
+        # Panel staging deliberately goes to /tmp (local disk), NOT to the
+        # IMG_DIR which may itself be a symlink to Google Drive. Reason:
+        # if IMG_DIR is on Drive's stream-mode FUSE, every panel write
+        # round-trips through Drive's upload queue, and the per-COLA
+        # rmtree at the end of stitching becomes a Drive "move to trash"
+        # operation. At 20K COLAs that's ~60K trashed items eating ~16 GB
+        # of trash quota for 30 days. Local /tmp avoids the round-trip
+        # entirely; only the final composite (~0.4 MB/COLA) goes to Drive.
         panels = form_fields.get("_panels") or []
         if panels:
             # Sort panels in priority order (front, back, neck, strip, other)
             panels.sort(key=lambda p: _panel_rank(p["image_type"]))
-            per_cola_dir = IMG_DIR / "panels" / tid
-            per_cola_dir.mkdir(parents=True, exist_ok=True)
-            downloaded_paths, panel_types = download_panels_parallel(
-                session, panels, per_cola_dir, max_workers=3,
-            )
+            import tempfile as _tf, shutil as _sh
+            with _tf.TemporaryDirectory(prefix=f"ttb_panels_{tid}_") as per_cola_dir_str:
+                per_cola_dir = Path(per_cola_dir_str)
+                downloaded_paths, panel_types = download_panels_parallel(
+                    session, panels, per_cola_dir, max_workers=3,
+                )
 
-            # Composite — what the engine actually verifies
-            composite_dest = IMG_DIR / f"{tid}.jpg"
-            ok, dpi = stitch_panels(downloaded_paths, composite_dest)
+                # Composite — what the engine actually verifies
+                composite_dest = IMG_DIR / f"{tid}.jpg"
+                ok, dpi = stitch_panels(downloaded_paths, composite_dest)
+            # tmpdir auto-cleans on context exit (no Drive trash event)
             if ok:
                 row["image_filename"] = composite_dest.name
                 row["image_dpi"] = dpi
