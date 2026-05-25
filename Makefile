@@ -79,6 +79,32 @@ modal-upload-adapter:
 	$(VENV)/bin/modal volume create ttb-qwen-adapter 2>/dev/null || true
 	$(VENV)/bin/modal volume put --force ttb-qwen-adapter $(SFT_MODEL_DIR)/adapter /adapter
 
+# ── Qwen v2 training on Modal A100 ──────────────────────────────────────────
+# Three-step flow: (1) upload JSONL + images, (2) train, (3) download adapter.
+# Each is idempotent and skippable if its inputs haven't changed.
+
+# 1. Upload JSONL + composite images to the train-data volume. Run after
+#    build_qwen_jsonl.py + holdout_split.py have produced the splits.
+modal-upload-train-data:
+	$(VENV)/bin/modal volume create ttb-qwen-train-data 2>/dev/null || true
+	$(VENV)/bin/modal volume put --force ttb-qwen-train-data test/eval/data/qwen_sft/train.jsonl /train.jsonl
+	$(VENV)/bin/modal volume put --force ttb-qwen-train-data test/eval/data/qwen_sft/val.jsonl   /val.jsonl
+	$(VENV)/bin/modal volume put --force ttb-qwen-train-data test/eval/data/ttb_live/images     /images
+
+# 2. Kick off the A100 training run. Streams logs back to the local shell;
+#    safe to ctrl-c the local process — the remote keeps running. Use
+#    `modal app logs ttb-qwen-train-v2` to reattach.
+TRAIN_EPOCHS ?= 1
+modal-train:
+	$(VENV)/bin/modal run backend/modal_deploy/train_qwen.py --epochs $(TRAIN_EPOCHS)
+
+# 3. Download the v2 adapter back to the Mac. Lands at backend/models/
+#    qwen2_5_vl_7b_v2/adapter/ so v1 and v2 coexist for the head-to-head.
+SFT_MODEL_DIR_V2 ?= backend/models/qwen2_5_vl_7b_v2
+modal-download-adapter-v2:
+	mkdir -p $(SFT_MODEL_DIR_V2)
+	$(VENV)/bin/modal volume get ttb-qwen-adapter-v2 /adapter $(SFT_MODEL_DIR_V2)/adapter
+
 # Manual demo scripts — exercise every verdict bucket against a running backend.
 # Backend must already be running (make serve  OR  make serve-modal).
 

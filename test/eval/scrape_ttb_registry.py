@@ -39,6 +39,7 @@ import html
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -315,9 +316,13 @@ def parse_basic_detail(html: str) -> dict:
 # ── Image download with DPI extraction ──────────────────────────────────────
 
 def download_image(session: requests.Session, url: str, dest: Path) -> tuple[bool, str]:
-    """Download an image; return (success, dpi_str). dpi_str like "200,200"."""
+    """Download an image; return (success, dpi_str). dpi_str like "200,200".
+
+    No polite_sleep here — callers control pacing. This function is also
+    invoked from a thread pool (download_panels_parallel) where serialized
+    sleeps would defeat the parallelism.
+    """
     try:
-        polite_sleep()
         r = session.get(url, timeout=30)
         r.raise_for_status()
         dest.write_bytes(r.content)
@@ -335,6 +340,39 @@ def download_image(session: requests.Session, url: str, dest: Path) -> tuple[boo
     except Exception:
         pass
     return True, dpi
+
+
+def download_panels_parallel(
+    session: requests.Session,
+    panels: list[dict],
+    dest_dir: Path,
+    max_workers: int = 3,
+) -> tuple[list[Path], list[str]]:
+    """Download a COLA's panels concurrently. Returns (paths, image_types).
+
+    Stays polite by capping workers at 3 — three concurrent downloads
+    to a single .gov host is well within courtesy norms (browsers open
+    6-8 conns/host) and the bottleneck moves from network round-trips
+    to TTB's per-image server-side render time, which is what we want.
+
+    A single polite_sleep is paid BEFORE the burst (caller-controlled);
+    no inter-panel sleeps inside the burst.
+    """
+    def _one(idx_panel):
+        i, panel = idx_panel
+        safe = f"panel_{i:02d}_{_panel_rank(panel['image_type'])}.jpg"
+        dest = dest_dir / safe
+        ok, _ = download_image(session, panel["url"], dest)
+        return (i, panel["image_type"], dest if ok else None)
+
+    polite_sleep()
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        results = list(ex.map(_one, list(enumerate(panels))))
+    # Re-sort by panel index to preserve front→back→neck ordering for stitch
+    results.sort(key=lambda t: t[0])
+    paths = [r[2] for r in results if r[2] is not None]
+    types = [r[1] for r in results if r[2] is not None]
+    return paths, types
 
 
 # Panel-type priority — used both for picking the "primary" image and for
@@ -512,23 +550,17 @@ def scrape(
 
         # Images: download every panel, stitch into one composite for the
         # engine. Save individual panels in a per-COLA subdir for debugging.
+        # Panels download in parallel (3 concurrent) — the bottleneck is
+        # TTB's per-image render time, not our request rate.
         panels = form_fields.get("_panels") or []
         if panels:
             # Sort panels in priority order (front, back, neck, strip, other)
             panels.sort(key=lambda p: _panel_rank(p["image_type"]))
             per_cola_dir = IMG_DIR / "panels" / tid
             per_cola_dir.mkdir(parents=True, exist_ok=True)
-            downloaded_paths: list[Path] = []
-            panel_types: list[str] = []
-            for i, panel in enumerate(panels):
-                # Use a safe local filename — TTB filenames sometimes
-                # contain spaces or special chars.
-                safe_local = f"panel_{i:02d}_{_panel_rank(panel['image_type'])}.jpg"
-                dest = per_cola_dir / safe_local
-                ok, _ = download_image(session, panel["url"], dest)
-                if ok:
-                    downloaded_paths.append(dest)
-                    panel_types.append(panel["image_type"])
+            downloaded_paths, panel_types = download_panels_parallel(
+                session, panels, per_cola_dir, max_workers=3,
+            )
 
             # Composite — what the engine actually verifies
             composite_dest = IMG_DIR / f"{tid}.jpg"
