@@ -251,6 +251,22 @@ train_raw = _load_jsonl(JSONL_DIR / 'train.jsonl')
 val_raw   = _load_jsonl(JSONL_DIR / 'val.jsonl')
 print(f'train: {len(train_raw)}   val: {len(val_raw)}')
 
+# ── LEAKAGE GUARD — hard-stop if any train/val ttb_id is in the holdout ──
+# This is defense-in-depth: build_qwen_jsonl.py already excludes the
+# holdout when writing the JSONL, but a stale JSONL + fresh holdout (or
+# vice-versa) would silently contaminate the training set without this
+# assertion.
+holdout_ids = {line.strip() for line in HOLDOUT_TXT.read_text().splitlines() if line.strip()}
+print(f'holdout list size: {len(holdout_ids)}')
+train_ids = {r['ttb_id'] for r in train_raw}
+val_ids   = {r['ttb_id'] for r in val_raw}
+leak_train = train_ids & holdout_ids
+leak_val   = val_ids   & holdout_ids
+assert not leak_train, f'LEAKAGE: {len(leak_train)} train ttb_ids appear in holdout. First 5: {list(leak_train)[:5]}'
+assert not leak_val,   f'LEAKAGE: {len(leak_val)} val ttb_ids appear in holdout. First 5: {list(leak_val)[:5]}'
+assert not (train_ids & val_ids), f'LEAKAGE: train ∩ val is non-empty ({len(train_ids & val_ids)} ttb_ids)'
+print(f'✓ train ∩ holdout = ∅   val ∩ holdout = ∅   train ∩ val = ∅')
+
 # Rewrite image_path from Mac-relative ('test/eval/data/ttb_live/images/<f>.jpg')
 # to Drive-absolute. Strip prefix, prepend IMAGE_DIR.
 def _fix_paths(rows):
@@ -493,10 +509,27 @@ for p in (V1_ADAPTER, V2_ADAPTER, HOLDOUT_TXT, CSV_PATH):
 """),
         md("## 2. Load holdout list + TTB form ground truth"),
         code("""\
-import csv
+import csv, json
 
 holdout_ids = {line.strip() for line in HOLDOUT_TXT.read_text().splitlines() if line.strip()}
 print(f'holdout: {len(holdout_ids)} ttb_ids')
+
+# ── LEAKAGE GUARD — assert the trainer never saw any holdout ttb_id ──
+# Cross-check the train.jsonl that the v2 adapter was trained on.
+# If you trained on a stale build, this is your last chance to catch it
+# before publishing eval numbers.
+train_jsonl = JSONL_DIR / 'train.jsonl'
+val_jsonl   = JSONL_DIR / 'val.jsonl'
+if train_jsonl.exists():
+    train_ids = {json.loads(l)['ttb_id'] for l in open(train_jsonl) if l.strip()}
+    val_ids   = {json.loads(l)['ttb_id'] for l in open(val_jsonl)   if l.strip()} if val_jsonl.exists() else set()
+    leak_t = train_ids & holdout_ids
+    leak_v = val_ids   & holdout_ids
+    assert not leak_t, f'LEAKAGE: v2 trained on {len(leak_t)} holdout ttb_ids. Eval numbers invalid. First 5: {list(leak_t)[:5]}'
+    assert not leak_v, f'LEAKAGE: v2 val set contains {len(leak_v)} holdout ttb_ids. First 5: {list(leak_v)[:5]}'
+    print(f'✓ no leakage — train ({len(train_ids)}) ∩ holdout = ∅, val ({len(val_ids)}) ∩ holdout = ∅')
+else:
+    print(f'⚠️  no train.jsonl on Drive to cross-check — proceeding without leakage assertion')
 
 # Map ttb_id -> form row (the ground truth)
 all_rows = list(csv.DictReader(open(CSV_PATH)))

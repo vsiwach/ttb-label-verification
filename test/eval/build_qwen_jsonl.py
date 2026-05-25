@@ -169,7 +169,7 @@ def _load_haiku_warnings() -> dict[str, dict]:
     return out
 
 
-def build(warning_source: str, val_frac: float, seed: int) -> dict:
+def build(warning_source: str, val_frac: float, seed: int, require_holdout: bool = True) -> dict:
     if not TTB_CSV.exists():
         sys.exit(f"missing {TTB_CSV}; run `make scrape-ttb-stratified` first")
 
@@ -179,14 +179,20 @@ def build(warning_source: str, val_frac: float, seed: int) -> dict:
             (TTB_IMGS / r["image_filename"]).exists()]
 
     # Exclude held-out rows so the trainer never sees the eval corpus.
-    # Silent no-op if no holdout has been generated yet (early-iteration
-    # smoke tests on partial data).
     holdout: set[str] = set()
     if HOLDOUT_TXT.exists():
         holdout = {line.strip() for line in HOLDOUT_TXT.read_text().splitlines() if line.strip()}
         before = len(rows)
         rows = [r for r in rows if r["ttb_id"] not in holdout]
         print(f"holdout: excluded {before - len(rows)} of {before} rows ({len(holdout)} held-out ttb_ids in file)")
+    elif require_holdout:
+        sys.exit(
+            f"refusing to build JSONL without a holdout list at {HOLDOUT_TXT}.\n"
+            "Run `python test/eval/holdout_split.py` first, OR pass\n"
+            "--allow-no-holdout if you really want an unguarded build (smoke tests only)."
+        )
+    else:
+        print(f"⚠️  no holdout file at {HOLDOUT_TXT}; building UNGUARDED JSONL (smoke-test mode)")
 
     haiku_map = _load_haiku_warnings() if warning_source == "haiku" else {}
 
@@ -266,8 +272,11 @@ def main() -> int:
     p.add_argument("--val-frac", type=float, default=0.05,
                    help="Validation fraction (default 0.05 = 1K from 20K)")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--allow-no-holdout", action="store_true",
+                   help="Permit building JSONL when no holdout list exists. "
+                        "Dev/smoke-test only — production training MUST have a holdout.")
     args = p.parse_args()
-    build(args.warning_source, args.val_frac, args.seed)
+    build(args.warning_source, args.val_frac, args.seed, require_holdout=not args.allow_no_holdout)
     return 0
 
 
