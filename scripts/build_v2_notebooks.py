@@ -167,14 +167,17 @@ SYSTEM_PROMPT_V1 = (
 
 IMAGE_RESIZE_FN = """\
 # Image preprocessing is delegated to qwen_vl_utils.process_vision_info,
-# which is the canonical Qwen2.5-VL pattern. It guarantees the chat
-# template's placeholder count and the processor's feature count match —
-# pre-resizing manually with PIL diverges from the processor's internal
-# resize and triggers `tokens != features` ValueErrors at training time.
+# the canonical Qwen2.5-VL pattern. The critical detail: both
+# apply_chat_template AND process_vision_info MUST see the same
+# max_pixels — otherwise the chat template counts placeholders for
+# one image size while the processor produces features for another.
+# We pass max_pixels at three places (processor init, in-message, and
+# in the smart_resize default) to lock alignment.
 #
-# max_pixels caps composite size for memory; ~1.5M pixels ≈ 1900 visual
-# tokens, the A100 sweet spot. process_vision_info handles the resize.
-MAX_PIXELS_TRAIN = 1500 * 1024
+# Using v1's tested 1M cap (vs my earlier 1.5M) gives ~1296 visual
+# tokens with comfortable headroom under max_length=4096 even for
+# tall multi-panel composites. v1 trained successfully at this cap.
+MAX_PIXELS_TRAIN = 1024 * 1024
 """
 
 
@@ -296,7 +299,14 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
     device_map='auto',
     attn_implementation='sdpa',
 )
-tokenizer = AutoProcessor.from_pretrained(BASE_MODEL)
+# CRITICAL: pass max_pixels at processor init so apply_chat_template's
+# internal smart_resize matches the cap we use in process_vision_info.
+# Mismatch here is what caused the `tokens != features` ValueError.
+tokenizer = AutoProcessor.from_pretrained(
+    BASE_MODEL,
+    max_pixels=MAX_PIXELS_TRAIN,
+    min_pixels=256 * 28 * 28,   # ~200K — Qwen default; prevents over-shrink on small panels
+)
 
 # Freeze vision tower (matches v1)
 for n, p in model.named_parameters():
@@ -354,8 +364,12 @@ def _collate(batch):
     ]
     text = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
     image_inputs, _video = process_vision_info(msgs)
+    # max_length=4096 gives headroom: 1296 image tokens + ~300 system + ~30 user text
+    # + ~250 target + ~30 chat template overhead ≈ 1900 — well under 4096.
+    # truncation_side='left' (defensive): if anything ever overflows, drop early
+    # tokens before image, never mid-image-block (which causes tokens!=features).
     enc = tokenizer(text=[text], images=image_inputs, padding=True, return_tensors='pt',
-                    truncation=True, max_length=2048)
+                    truncation=True, max_length=4096)
     labels = enc['input_ids'].clone()
     pad_id = tokenizer.tokenizer.pad_token_id
     if pad_id is not None:
