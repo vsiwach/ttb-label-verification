@@ -448,6 +448,64 @@ def _looks_like_flavored_malt(app: ApplicationData) -> bool:
     return any(t in ct for t in _FLAVORED_MALT_TOKENS)
 
 
+def _classify_class_type(declared: str, extracted: str):
+    """Class/type comparison tolerant of finishing/style descriptors.
+
+    Real labels routinely add descriptive copy after the registered class:
+      declared:  'Kentucky Straight Bourbon Whiskey'
+      extracted: 'KENTUCKY STRAIGHT BOURBON WHISKEY FINISHED WITH TOASTED MAPLE WOOD'
+
+      declared:  'Sonoma County Chardonnay'
+      extracted: 'Sonoma County Chardonnay — Reserve, Estate Bottled'
+
+    The added words ('finished with...', 'reserve', 'estate bottled', etc.)
+    don't change the class/type designation; they're marketing detail.
+    Whenever the declared class appears as a substring of the extracted
+    text (or vice versa), treat as match. The umbrella-class rule
+    (form says 'beer', label says 'Pilsner') is the same pattern,
+    handled here too.
+    """
+    from .field_match import FieldVerdict, _strict_normalize, classify_field
+
+    if not extracted:
+        return classify_field(declared, extracted)
+
+    d_low = declared.strip().lower()
+    e_low = extracted.strip().lower()
+
+    # Exact match (case-insensitive) — common case.
+    if d_low == e_low:
+        return classify_field(declared, extracted)
+
+    # Umbrella class declared, specific designation on label → match.
+    # (form says 'beer', label says 'India Pale Ale')
+    if _is_umbrella_class(declared):
+        return FieldVerdict(
+            status="match",
+            normalized_declared=d_low,
+            normalized_extracted=e_low,
+            similarity=1.0,
+            note="Form declared an umbrella class; label's specific designation is consistent.",
+        )
+
+    # Containment: declared class appears in the label's longer phrase
+    # (or vice versa). Catches finishing/style descriptors and reserve
+    # designations that don't change the class.
+    if d_low in e_low or e_low in d_low:
+        return FieldVerdict(
+            status="match",
+            normalized_declared=d_low,
+            normalized_extracted=e_low,
+            similarity=0.95,
+            note=None if _strict_normalize(declared) == _strict_normalize(extracted) else
+                 "Label adds descriptive detail to the registered class; designation is consistent.",
+        )
+
+    # Otherwise generic similarity comparison — substantively different
+    # designations still flag.
+    return classify_field(declared, extracted)
+
+
 def verify(
     extracted: ExtractedLabel,
     app: ApplicationData,
@@ -511,17 +569,8 @@ def verify(
             verdict = _classify_brand(declared, extracted_value, product_name=app.productName or "")
         elif spec.label_name == "Country of origin":
             verdict = _classify_country_of_origin(declared, extracted_value)
-        elif spec.label_name == "Class & type" and _is_umbrella_class(declared):
-            # Form declared a taxonomy umbrella ('beer'); label printed a specific
-            # designation. Any non-empty designation is consistent.
-            from .field_match import FieldVerdict
-            verdict = FieldVerdict(
-                status="match",
-                normalized_declared=declared.lower(),
-                normalized_extracted=extracted_value.lower(),
-                similarity=1.0,
-                note="Form declared an umbrella class; label's specific designation is consistent.",
-            )
+        elif spec.label_name == "Class & type":
+            verdict = _classify_class_type(declared, extracted_value)
         elif spec.label_name == "Alcohol content":
             # Per-beverage ABV tolerance — within 27 CFR-stated tolerance is match,
             # outside-but-close is 'likely' (needs-confirm), substantive is flag.
@@ -558,13 +607,16 @@ def verify(
             note=note,
         ))
 
-    # Government Warning analysis (16.21 / 16.22)
+    # Government Warning analysis (16.21 / 16.22). Pass the image DPI
+    # through so the type-size check can compute mm when both DPI and
+    # warning bbox are available.
     container_ml = parse_net_contents_to_ml(app.netContents)
     gw = analyze_warning(
         detected_text=extracted.warning_text,
         present=extracted.warning_present,
         style=extracted.warning_style,
         container_ml=container_ml,
+        image_dpi=extracted.image_dpi,
     )
 
     image_quality = ImageQuality(

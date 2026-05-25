@@ -30,10 +30,11 @@ from .image_pipeline import (
     fetch_crop,
     store_crop,
 )
-from .mock_data import thumb_for
-from .models import ApplicationData, BatchItemResult, ImageQuality, VerificationResult, group_for
+from .mock_data import application_for_filename
+from .models import ApplicationData, BatchItemResult, ImageQuality, TimingInfo, VerificationResult, group_for
 from .rules import verify as run_rules
 from .rules.mandatory_fields import ALL_FIELDS
+from .samples import get_sample_by_id, list_samples
 
 logger = logging.getLogger("ttb")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -55,6 +56,42 @@ _BATCH_CONCURRENCY = 8
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "inferenceMode": settings.inference_mode}
+
+
+@app.get("/api/samples")
+def get_samples() -> list[dict]:
+    """List every sample COLA application available to pre-fill the form.
+
+    Two sections: synthetic (9 hand-crafted controlled cases) + real
+    (curated COLA Cloud free sample, public CC0 data). Each entry
+    includes the application data and an imageUrl that hits
+    /api/samples/{id}/image to fetch the actual label artwork.
+    """
+    out: list[dict] = []
+    for s in list_samples():
+        out.append({
+            "id": s.id,
+            "kind": s.kind,
+            "imageUrl": f"/api/samples/{s.id}/image",
+            "applicationData": s.application_data.model_dump(),
+            "expectedOutcome": s.expected_outcome,
+            "note": s.note,
+        })
+    return out
+
+
+@app.get("/api/samples/{sample_id}/image")
+def get_sample_image(sample_id: str) -> Response:
+    s = get_sample_by_id(sample_id)
+    if s is None or not s.image_path.exists():
+        raise HTTPException(status_code=404, detail="sample not found")
+    suffix = s.image_path.suffix.lower().lstrip(".")
+    media = {"png": "image/png", "webp": "image/webp", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(suffix, "application/octet-stream")
+    return Response(
+        content=s.image_path.read_bytes(),
+        media_type=media,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @app.get("/crops/{crop_id}")
@@ -95,7 +132,14 @@ def _assess_or_none(image_bytes: bytes) -> Optional[ImageMeasurement]:
 
 
 async def _run_pipeline(image_bytes: bytes, app_data: ApplicationData) -> VerificationResult:
-    """The single-label pipeline. Shared by /api/verify and /api/verify-batch."""
+    """The single-label pipeline. Shared by /api/verify and /api/verify-batch.
+
+    Measures wall-clock latency at each stage and attaches a TimingInfo to
+    the result so the UI can show end-to-end latency + which inference
+    mode produced it (claude-code locally, modal+Qwen in production).
+    """
+    pipeline_start = time.perf_counter()
+
     # 1. Validate + measure the image.
     try:
         measurement = _assess_or_none(image_bytes)
@@ -104,24 +148,38 @@ async def _run_pipeline(image_bytes: bytes, app_data: ApplicationData) -> Verifi
 
     # 2. Extract observations. Catch InferenceError from both the factory
     # (e.g. missing API key) and the adapter's extract() call.
+    extractor_start = time.perf_counter()
     try:
         extractor = get_extractor(brand_hint=app_data.brandName)
         extracted = await extractor.extract(image_bytes, app_data.beverageType)
     except InferenceError as e:
         raise HTTPException(status_code=502, detail=f"inference failed: {e}")
+    extractor_ms = int((time.perf_counter() - extractor_start) * 1000)
 
     # If the image pipeline measured quality, override the extractor's
     # self-reported number with the deterministic server-side measurement.
+    # Also pass DPI through so the rules engine can do the 16.22
+    # type-size check (when the extractor returns a warning bbox).
     if measurement is not None:
         extracted.image_quality_score = measurement.score
         extracted.image_legible = measurement.legible
         extracted.image_quality_note = measurement.note
+        extracted.image_dpi = measurement.dpi
 
     # 3. Apply the deterministic 27 CFR rules engine.
+    rules_start = time.perf_counter()
     result = run_rules(extracted, app_data)
+    rules_ms = int((time.perf_counter() - rules_start) * 1000)
 
     # 4. Attach ephemeral evidence crops where the extractor gave bboxes.
     _attach_crops(image_bytes, extracted, result)
+
+    result.timing = TimingInfo(
+        inferenceMode=settings.inference_mode,
+        extractorMs=extractor_ms,
+        rulesMs=rules_ms,
+        totalMs=int((time.perf_counter() - pipeline_start) * 1000),
+    )
     return result
 
 
@@ -184,14 +242,18 @@ async def verify_batch(
         raise HTTPException(status_code=400, detail="no images provided")
     shared = _parse_application_data(applicationData) if applicationData else None
 
-    from .mock_data import SAVED_APPLICATIONS
-
     # Eagerly drain uploads (FastAPI's SpooledTemporaryFile is per-request).
     payloads: list[tuple[int, bytes, str, ApplicationData]] = []
     for idx, img in enumerate(images):
         b = await img.read()
-        app_data = shared if shared is not None else SAVED_APPLICATIONS[idx % len(SAVED_APPLICATIONS)]
-        payloads.append((idx, b, img.filename or f"label-{idx + 1}.jpg", app_data))
+        filename = img.filename or f"label-{idx + 1}.jpg"
+        # When the client supplies one shared application, use it for every
+        # item. Otherwise pair each upload with its matching saved COLA by
+        # filename (so dragging the synthetic fixtures into /batch lines up
+        # with the right application). Production replaces this with a real
+        # queue keyed by COLA number — see DESIGN.md §10.
+        app_data = shared if shared is not None else application_for_filename(filename, idx)
+        payloads.append((idx, b, filename, app_data))
 
     sem = asyncio.Semaphore(_BATCH_CONCURRENCY)
 
@@ -208,7 +270,7 @@ async def verify_batch(
             return BatchItemResult(
                 id=f"b-{int(time.time() * 1000)}-{idx}-{uuid.uuid4().hex[:6]}",
                 fileName=file_name,
-                thumbnailUrl=thumb_for(_scenario_key(app_data)),
+                thumbnailUrl="",
                 result=result,
                 group=group_for(result),
             )
@@ -218,15 +280,6 @@ async def verify_batch(
     return list(items)
 
 
-def _scenario_key(app_data: ApplicationData) -> str:
-    brand = (app_data.brandName or "").upper()
-    if "STONE" in brand:
-        return "B"
-    if "NORTHWIND" in brand:
-        return "C"
-    return "A"
-
-
 def _error_result(message: str) -> VerificationResult:
     """Synthesize a 'flag' result for a per-item batch failure."""
     from .models import GovernmentWarningAnalysis, WarningDeviation
@@ -234,7 +287,7 @@ def _error_result(message: str) -> VerificationResult:
         fields=[],
         governmentWarning=GovernmentWarningAnalysis(
             present=False, verbatimMatch=False, casingBoldOk=False,
-            fontSizeOk=False, contrastOk=False, separateAndApart=False,
+            contrastOk=False, separateAndApart=False,
             detectedText="",
             deviations=[WarningDeviation(type="error", message=message)],
         ),

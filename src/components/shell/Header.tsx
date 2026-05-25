@@ -3,9 +3,6 @@ import { NavLink, Link } from 'react-router-dom';
 const NAV = [
   { to: '/upload',     label: 'Single label' },
   { to: '/batch',      label: 'Batch' },
-  { to: '/api-demo',   label: 'API demo' },
-  { to: '/styleguide', label: 'Styleguide' },
-  { to: '/system',     label: 'Design system' },
 ];
 
 export default function Header() {

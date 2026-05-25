@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ApplicationData, VerificationField, VerificationResult } from '../api/types';
-import { SAVED_APPLICATIONS } from '../api/mockData';
+import { SAMPLE_APPLICATIONS as SAVED_APPLICATIONS } from '../api/sampleApplications';
 import { useVerifyStore } from '../store/verifyStore';
 import Alert from '../components/Alert';
 import Button from '../components/Button';

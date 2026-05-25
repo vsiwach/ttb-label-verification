@@ -1,9 +1,7 @@
 // src/api/types.ts
 // ─────────────────────────────────────────────────────────────────────────────
-// THE TTB API CONTRACT — single source of truth for data shapes.
-// The future real backend MUST implement these shapes exactly. The mock
-// client in src/api/client.ts returns them today; swapping in a real
-// fetch() call later is a one-line change (flip USE_MOCK to false).
+// THE TTB API CONTRACT — single source of truth for data shapes shared
+// between the React client and the FastAPI backend.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The 3-state status model used everywhere a field verdict appears. */
@@ -36,8 +34,6 @@ export interface GovernmentWarningAnalysis {
   verbatimMatch: boolean;
   /** "GOVERNMENT WARNING" is all-caps AND bold. */
   casingBoldOk: boolean;
-  /** Warning text meets the minimum type size for the container. */
-  fontSizeOk: boolean;
   /** Adequate contrast against background. */
   contrastOk: boolean;
   /** Warning is separate and apart from other label copy. */
@@ -48,6 +44,10 @@ export interface GovernmentWarningAnalysis {
   deviations: Array<{ type: string; message: string }>;
   /** Always this constant — included for downstream filtering / display. */
   regulation: '27 CFR 16.21/16.22';
+  /** 27 CFR 16.22 minimum type size, computed from the warning bbox + image
+   *  DPI when both are available. null when inputs missing (phone photos
+   *  without DPI, or extractor returned no bbox) — agent confirms manually. */
+  fontSizeOk?: boolean | null;
 }
 
 /** Image-quality signal. Drives the "re-upload a sharper image" prompt. */
@@ -58,11 +58,24 @@ export interface ImageQuality {
   note?: string;
 }
 
+/** Per-request latency breakdown. Attached to every result so the UI can
+ *  show how fast the current inference mode is. extractorMs is the bulk
+ *  of the time (model call + network); rulesMs is the deterministic
+ *  rules engine pass; totalMs is the whole pipeline including image
+ *  pre-processing and evidence cropping. */
+export interface TimingInfo {
+  inferenceMode: string;
+  extractorMs: number;
+  rulesMs: number;
+  totalMs: number;
+}
+
 /** The full result of /api/verify. */
 export interface VerificationResult {
   fields: VerificationField[];
   governmentWarning: GovernmentWarningAnalysis;
   imageQuality: ImageQuality;
+  timing?: TimingInfo;
 }
 
 /** What the user (or a saved record) supplies as ground truth from the COLA application. */

@@ -333,47 +333,89 @@ Frontend has ONE env var (in .env.local at repo root):
 
 ## Quick start
 
-### Frontend + mock backend (no setup, 30 sec)
+### Local dev — Claude Code CLI (no API spend, ~2 min)
+
+The default local path uses the `claude` CLI (your Max subscription), so you can
+run unlimited verifications without burning API tokens. Slower per call (~30 s)
+but free.
 
 ```bash
-npm install
-npm run dev
+make install         # creates backend/.venv
+make test            # 114 backend tests, ~3 s
+make serve           # backend on :8000 via Claude Code CLI
+
+# in another terminal
+VITE_API_BASE_URL=http://localhost:8000/api npm run dev
 # open http://localhost:5173
 ```
 
-`VITE_API_BASE_URL` is empty → frontend uses the bundled mock data. Click around `/upload`, `/result`, `/batch`, `/review`.
+Pre-requisite: `claude` CLI installed and logged in (one time: `brew install claude` / login via the desktop app).
 
-### Real FastAPI backend (mock inference mode, 1 min)
-
-```bash
-make install      # creates backend/.venv, installs deps
-make test         # 115 backend tests, should all pass in <5 sec
-make serve-mock   # starts backend on localhost:8000
-
-# in another terminal
-echo "VITE_API_BASE_URL=http://localhost:8000/api" > .env.local
-npm run dev
-```
-
-### Real cloud inference (~10 min, requires Anthropic API key)
+### Local dev — paid Anthropic API (~10 s per call)
 
 ```bash
 cp backend/.env.example backend/.env
-# edit backend/.env: set INFERENCE_MODE=cloud, ANTHROPIC_API_KEY=sk-ant-...
-make serve-cloud
+# edit backend/.env: set ANTHROPIC_API_KEY=sk-ant-...
+make serve-api       # cloud mode, ~8-12 s per verification
 ```
 
-### Production Qwen on Modal (~30 min, see runbook)
+### Production — Qwen LoRA on Modal (~3-5 s per call, scale-to-zero)
 
 ```bash
-pip install modal && modal token new
-make modal-upload-adapter   # uploads LoRA weights (~190 MB) to Modal volume
-make modal-deploy           # builds container + deploys (~5 min first time)
-# copy printed URL into backend/.env as MODAL_ENDPOINT_URL
+backend/.venv/bin/pip install modal
+backend/.venv/bin/modal token new
+make modal-upload-adapter    # uploads LoRA weights (~190 MB) to Modal volume
+make modal-deploy            # builds container + deploys
+# copy the printed URL into backend/.env as MODAL_ENDPOINT_URL
 make serve-modal
 ```
 
 Full deployment runbook: [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md)
+
+---
+
+## Real-data testing — the UAT pack
+
+The repo includes 67 real TTB-approved labels from the COLA Cloud free sample
+(CC0). Two ways to use them:
+
+### A. Pre-paired picker (fastest)
+
+`/upload` shows a "Load a sample COLA" picker with ~10 curated reals. Click one
+→ form pre-fills + label image loads into the dropzone → click Verify. The
+verdict pill on each button is the *typical* engine output for that label
+(Claude is non-deterministic, so actual runs may land ±1 bucket).
+
+### B. Standalone UAT pack — for upload + batch workflows
+
+For the realistic production workflow where the label image and the
+application data arrive separately:
+
+```bash
+make uat-pack   # writes test/eval/uat_pack/{labels/, applications.csv}
+```
+
+That produces:
+
+- `test/eval/uat_pack/labels/` — 67 `.webp` label images (renamed by brand + ttb_id)
+- `test/eval/uat_pack/applications.csv` — paired application data, including the `expectedOutcome` column
+
+Then in the browser:
+
+- **Single upload**: pick any row in the CSV, paste into `/upload` form, drag the matching label image
+- **Batch**: drag many labels into `/batch` at once, optionally paste one shared application
+
+### C. Cross-verify the engine against all reals
+
+```bash
+make serve        # in one terminal
+make audit-reals  # in another — runs all 67 through /api/verify (concurrency 4)
+                  # ~12-20 min on claude-code path; ~3-5 min on modal
+```
+
+Outputs:
+- `test/eval/REAL_AUDIT.md` — human-readable summary + per-row table
+- `test/eval/real_audit.json` — machine-readable for tooling
 
 ---
 

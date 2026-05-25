@@ -66,10 +66,10 @@ _REPORT_TOOL = {
                     "casing_all_caps": {"type": "boolean", "description": "Is the literal text 'GOVERNMENT WARNING' rendered in ALL CAPS?"},
                     "heading_bold":    {"type": "boolean", "description": "Is 'GOVERNMENT WARNING' bold?"},
                     "body_bold":       {"type": "boolean", "description": "Is the warning body (after the heading) bold? (It should NOT be.)"},
-                    "approx_font_mm":  {"type": ["number", "null"], "description": "Estimated text height of the warning body in mm, if measurable from the image. null if uncertain."},
                     "contrast_ok":     {"type": "boolean"},
                     "separate_and_apart": {"type": "boolean"},
-                    "bbox":            {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+                    "bbox":            {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4, "description": "[x, y, w, h] in pixels of the Government Warning text region (heading + body together). Tight crop around just the warning text, not the whole back panel."},
+                    "body_line_count": {"type": ["integer", "null"], "description": "Number of body-text lines in the warning (the wrapped paragraph after 'GOVERNMENT WARNING:'). Used together with bbox height and image DPI to compute mm per line for 27 CFR 16.22 type-size verification. null if uncertain or warning is missing."},
                 },
                 "required": ["present", "detected_text", "casing_all_caps", "heading_bold", "body_bold"],
             },
@@ -118,7 +118,14 @@ _SYSTEM_PROMPT = (
     '  - whether "GOVERNMENT WARNING" is rendered in all capital letters,\n'
     "  - whether the heading is bold,\n"
     "  - whether the body is bold (it should NOT be),\n"
-    "  - an estimated body text height in mm if measurable, null if not,\n"
+    "  - the bounding box [x, y, width, height] in pixels of the warning "
+    "text region (a tight crop around the heading + body together, NOT the "
+    "whole back panel),\n"
+    "  - the number of body-text lines (the wrapped paragraph after "
+    "'GOVERNMENT WARNING:'). For the standard 5-sentence warning printed "
+    "wrapped, this is usually 4 to 8 depending on font size. Used together "
+    "with the bbox height and the image's DPI to compute mm per line for "
+    "the 27 CFR 16.22 type-size check.\n"
     "  - whether the warning has adequate contrast against the background,\n"
     "  - whether the warning is visually separate from other label copy.\n\n"
     "Call the report_label_extraction tool with your structured findings. Do not "
@@ -224,14 +231,16 @@ def _parse_response(response: Any) -> ExtractedLabel:
         )
 
     gw = data.get("government_warning") or {}
+    bbox_raw = gw.get("bbox")
+    line_count_raw = gw.get("body_line_count")
     style = WarningStyle(
         casing_all_caps=bool(gw.get("casing_all_caps", False)),
         heading_bold=bool(gw.get("heading_bold", False)),
         body_bold=bool(gw.get("body_bold", False)),
-        approx_font_mm=gw.get("approx_font_mm") if gw.get("approx_font_mm") is not None else None,
         contrast_ok=gw.get("contrast_ok") if gw.get("contrast_ok") is not None else None,
         separate_and_apart=gw.get("separate_and_apart") if gw.get("separate_and_apart") is not None else None,
-        bbox=tuple(gw.get("bbox")) if isinstance(gw.get("bbox"), list) and len(gw.get("bbox", [])) == 4 else None,  # type: ignore[arg-type]
+        bbox=tuple(bbox_raw) if isinstance(bbox_raw, list) and len(bbox_raw) == 4 else None,  # type: ignore[arg-type]
+        body_line_count=int(line_count_raw) if isinstance(line_count_raw, (int, float)) and line_count_raw > 0 else None,
     )
 
     iq = data.get("image_quality") or {}

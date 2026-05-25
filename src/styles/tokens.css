@@ -871,8 +871,9 @@ main {
   color: #fff;
   flex-shrink: 0;
 }
-.gw-check__dot--match { background: var(--status-match-fg); }
-.gw-check__dot--flag  { background: var(--status-flag-fg); }
+.gw-check__dot--match    { background: var(--status-match-fg); }
+.gw-check__dot--advisory { background: var(--status-likely-fg); }
+.gw-check__dot--flag     { background: var(--status-flag-fg); }
 .gw-check__body { flex: 1; min-width: 0; }
 .gw-check__title {
   font-weight: 600;
@@ -897,8 +898,9 @@ main {
   text-transform: uppercase;
   white-space: nowrap;
 }
-.gw-pill--match { background: var(--status-match-bg); color: var(--status-match-fg); }
-.gw-pill--flag  { background: var(--status-flag-bg);  color: var(--status-flag-fg); }
+.gw-pill--match    { background: var(--status-match-bg);  color: var(--status-match-fg); }
+.gw-pill--advisory { background: var(--status-likely-bg); color: var(--status-likely-fg); }
+.gw-pill--flag     { background: var(--status-flag-bg);   color: var(--status-flag-fg); }
 
 /* Diff text */
 .gw__diff-head {
@@ -1016,6 +1018,14 @@ main {
   color: #fff;
   border-radius: 4px;
   flex-shrink: 0;
+}
+.gw__deviation--advisory {
+  background: var(--status-likely-bg);
+  border-left-color: var(--status-likely-border);
+}
+.gw__deviation-type--advisory {
+  background: var(--status-likely-fg);
+  color: #fff;
 }
 
 .gw__foot {

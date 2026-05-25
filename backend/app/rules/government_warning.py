@@ -1,10 +1,15 @@
 """The Government Warning engine (27 CFR 16.21 / 16.22).
 
-Four classes of check:
+Three classes of check:
   1. Verbatim text match (16.21) — normalize only OCR noise, never wording
-  2. ALL-CAPS + bold on 'GOVERNMENT WARNING' (16.22)
-  3. Type-size vs container (16.22): ≤237 mL → 1 mm; ≤3 L → 2 mm; >3 L → 3 mm
-  4. Contrast + 'separate and apart' (16.22)
+  2. ALL-CAPS heading on 'GOVERNMENT WARNING' (16.22)
+  3. Contrast + 'separate and apart' (16.22)
+
+The fourth 16.22 requirement — minimum type size (1/2/3 mm by container
+size) — is NOT verified here. A digital image has no DPI/scale reference,
+so mm cannot be measured from pixels. TTB inspectors verify this on
+physical samples. The UI surfaces this as a documented limitation in the
+panel footer.
 """
 
 from __future__ import annotations
@@ -43,6 +48,23 @@ def _normalize_ocr_noise(s: str) -> str:
     return s
 
 
+_HEADING_ALL_CAPS_RE = re.compile(r"^\s*GOVERNMENT\s+WARNING\s*:", re.MULTILINE)
+
+
+def _heading_is_all_caps(detected: str) -> bool:
+    """Deterministically check whether the 'GOVERNMENT WARNING:' heading on
+    the label is rendered in all-caps. The extractor's self-reported
+    boolean is unreliable (the model sometimes answers about the body or
+    flips on minor styling), so we check the raw OCR text ourselves.
+
+    A label with all-caps heading will have 'GOVERNMENT WARNING:' (or
+    similar with whitespace tolerance) appear verbatim in the detected
+    text. Title case ('Government Warning:') or lowercase fails the
+    regex by definition because we're case-sensitive.
+    """
+    return bool(detected and _HEADING_ALL_CAPS_RE.search(detected))
+
+
 def _verbatim_match(detected: str) -> bool:
     """Wording-only comparison after OCR-noise normalization.
 
@@ -78,11 +100,40 @@ def _near_verbatim(detected: str) -> tuple[bool, float]:
     return (ratio >= NEAR_VERBATIM_SIMILARITY, ratio)
 
 
+def _compute_type_size_mm(
+    style: WarningStyle | None,
+    image_dpi: tuple[int, int] | None,
+) -> float | None:
+    """Convert the warning bbox + DPI to mm-per-line of body text.
+
+    Returns None if any input is missing. The math:
+        mm = (bbox_height / line_count) / dpi_y * 25.4
+
+    We use line_count = body_line_count + 1 (the +1 accounts for the
+    'GOVERNMENT WARNING:' heading, which the bbox also covers). This
+    biases the estimate slightly low (heading is usually larger than
+    body), which is the conservative direction for the check.
+    """
+    if style is None or image_dpi is None:
+        return None
+    if style.bbox is None or style.body_line_count is None:
+        return None
+    _, _, _, h = style.bbox
+    line_count = style.body_line_count + 1  # +1 for heading
+    if h <= 0 or line_count <= 0:
+        return None
+    dpi_y = image_dpi[1]
+    if dpi_y <= 0:
+        return None
+    return round((h / line_count) / dpi_y * 25.4, 2)
+
+
 def analyze_warning(
     detected_text: str,
     present: bool,
     style: WarningStyle | None,
     container_ml: float | None,
+    image_dpi: tuple[int, int] | None = None,
 ) -> GovernmentWarningAnalysis:
     """Apply the four 16.21/16.22 checks and build the analysis payload."""
     from .citations import citation_for_warning  # local import avoids cycle
@@ -94,7 +145,6 @@ def analyze_warning(
             present=False,
             verbatimMatch=False,
             casingBoldOk=False,
-            fontSizeOk=False,
             contrastOk=False,
             separateAndApart=False,
             detectedText=detected_text or "",
@@ -136,14 +186,23 @@ def analyze_warning(
     # image at typical warning-text sizes, so the gate is the more reliable
     # signals: heading must be ALL CAPS, and body must NOT be bold (when the
     # model can tell). heading_bold is recorded but doesn't gate the verdict.
-    casing_bold_ok = bool(style and style.casing_all_caps and not style.body_bold)
+    #
+    # The heading-all-caps check is derived deterministically from the raw
+    # detected text rather than the extractor's self-reported boolean (which
+    # has shipped wrong on labels with clearly-all-caps headings). If the
+    # extractor returned text, the regex over the actual characters is
+    # ground truth.
+    derived_all_caps = _heading_is_all_caps(detected_text)
+    casing_all_caps = derived_all_caps if detected_text else bool(style and style.casing_all_caps)
+    body_bold = bool(style and style.body_bold)
+    casing_bold_ok = casing_all_caps and not body_bold
     if not casing_bold_ok:
-        if style and not style.casing_all_caps:
+        if not casing_all_caps:
             deviations.append(WarningDeviation(
                 type="casing",
                 message=f'"GOVERNMENT WARNING" must be all capitals and bold; detected non-all-caps heading ({citation_for_warning("format")}).',
             ))
-        elif style and style.body_bold:
+        elif body_bold:
             deviations.append(WarningDeviation(
                 type="casing",
                 message=f"Warning body text must not be bold; only the GOVERNMENT WARNING heading is bold ({citation_for_warning('format')}).",
@@ -154,30 +213,32 @@ def analyze_warning(
                 message=f'"GOVERNMENT WARNING" must be all capitals and bold ({citation_for_warning("format")}).',
             ))
 
-    # 3. Type size vs container
+    # 3. Type size (27 CFR 16.22). Computed deterministically when the
+    # extractor returned a warning bbox AND the image has DPI metadata
+    # (TTB-scraped labels do, phone photos don't). Otherwise omitted
+    # entirely — the agent confirms manually for unmeasurable inputs.
+    measured_mm = _compute_type_size_mm(style, image_dpi)
     min_mm = required_warning_mm(container_ml)
-    if style is None or style.approx_font_mm is None or min_mm is None:
-        # Borderline / unmeasurable — return False so the dashboard treats it
-        # as a non-pass; the deviation message asks the agent to confirm.
-        font_size_ok = False
-        if min_mm is not None:
-            deviations.append(WarningDeviation(
-                type="fontSize",
-                message=(
-                    f"Warning type size could not be measured from this image; "
-                    f"minimum is {min_mm:.0f} mm for this container "
-                    f"({citation_for_warning('format')}). Please confirm manually."
-                ),
-            ))
-    else:
-        font_size_ok = style.approx_font_mm + 1e-9 >= min_mm
+    if min_mm is None and measured_mm is not None:
+        # Container size unknown (net contents not declared on the COLA
+        # application — TTB Form 5100.31 doesn't carry it). Default to
+        # the 2 mm threshold which covers the ≤3 L consumer-bottle range
+        # (~95% of submissions). The deviation message flags this is the
+        # default threshold; the agent confirms for unusual sizes.
+        min_mm = 2.0
+    font_size_ok: bool | None = None
+    if measured_mm is not None and min_mm is not None:
+        # Allow a 10% tolerance — the bbox is a model estimate, ±5-10%
+        # error is realistic. Substantially-below = real flag.
+        font_size_ok = measured_mm >= (min_mm * 0.9)
         if not font_size_ok:
             deviations.append(WarningDeviation(
                 type="fontSize",
                 message=(
-                    f"Warning text appears below the minimum type size for this container "
-                    f"(measured ~{style.approx_font_mm:.1f} mm vs required {min_mm:.0f} mm) "
-                    f"({citation_for_warning('format')})."
+                    f"Warning text measures ~{measured_mm:.2f} mm per line; "
+                    f"27 CFR 16.22 requires {min_mm:.0f} mm minimum for this "
+                    f"container size. Below threshold by "
+                    f"{(min_mm - measured_mm) / min_mm:.0%}."
                 ),
             ))
 

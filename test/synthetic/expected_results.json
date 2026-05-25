@@ -7,7 +7,7 @@
       "expected": {
         "group": "auto-pass",
         "fields": { "brand": "match", "class": "match", "alcohol": "match", "net": "match", "bottler": "match" },
-        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true, "fontSizeOk": true, "contrastOk": true, "separateAndApart": true }
+        "governmentWarning": { "present": true, "verbatimMatch": true, "casingBoldOk": true, "contrastOk": true, "separateAndApart": true }
       }
     },
     {
@@ -26,7 +26,7 @@
       "expected": {
         "group": "needs-review",
         "fields": { "brand": "match", "class": "match", "net": "match", "bottler": "match" },
-        "governmentWarning": { "present": true, "verbatimMatch": false, "casingBoldOk": false, "fontSizeOk": false }
+        "governmentWarning": { "present": true, "verbatimMatch": false, "casingBoldOk": false }
       },
       "notes": "Fields fine; Government Warning is title-case + paraphrased + sub-minimum font."
     },

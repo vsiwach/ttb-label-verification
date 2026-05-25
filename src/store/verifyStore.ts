@@ -6,6 +6,7 @@ import type {
   BatchItemResult,
   GovernmentWarningAnalysis,
   ImageQuality,
+  TimingInfo,
   VerificationField,
 } from '../api/types';
 
@@ -31,6 +32,7 @@ export interface StreamingResult {
   fields: VerificationField[];
   governmentWarning: GovernmentWarningAnalysis | null;
   imageQuality: ImageQuality | null;
+  timing: TimingInfo | null;
 }
 
 export interface VerifyStoreState {
@@ -46,7 +48,7 @@ const initial: VerifyStoreState = {
   image: null,
   applicationData: null,
   status: 'idle',
-  result: { fields: [], governmentWarning: null, imageQuality: null },
+  result: { fields: [], governmentWarning: null, imageQuality: null, timing: null },
   error: null,
   reviewSession: null,
 };
@@ -75,7 +77,7 @@ export function reset(): void {
     image: null,
     applicationData: null,
     status: 'idle',
-    result: { fields: [], governmentWarning: null, imageQuality: null },
+    result: { fields: [], governmentWarning: null, imageQuality: null, timing: null },
     error: null,
     // Note: reviewSession intentionally NOT cleared so users can navigate
     // /review → /result → back without losing the queue.

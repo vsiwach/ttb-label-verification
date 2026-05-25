@@ -52,7 +52,7 @@ export default function ResultPage() {
     startedRef.current = true;
     verifyStore.setState({
       status: 'streaming',
-      result: { fields: [], governmentWarning: null, imageQuality: null },
+      result: { fields: [], governmentWarning: null, imageQuality: null, timing: null },
       error: null,
     });
     verifyLabel(
@@ -69,7 +69,11 @@ export default function ResultPage() {
         onImageQuality:      (iq) => verifyStore.setState(s => ({ ...s, result: { ...s.result, imageQuality: iq } })),
       },
     )
-      .then(() => verifyStore.setState({ status: 'done' }))
+      .then((full) => verifyStore.setState(s => ({
+        ...s,
+        status: 'done',
+        result: { ...s.result, timing: full.timing ?? null },
+      })))
       .catch((err) => verifyStore.setState({ status: 'error', error: err instanceof Error ? err : new Error(String(err)) }));
   }, [applicationData, image]);
 
@@ -146,9 +150,13 @@ export default function ResultPage() {
         </div>
       </div>
 
+      {result.timing && !error && <LatencyBadge timing={result.timing} />}
+
       <p className="sr-only" role="status" aria-live="polite">{liveMessage}</p>
 
-      <SummaryBar counts={counts} isStreaming={isStreaming} totalArrived={totalArrived} totalExpected={totalExpected} />
+      {!error && (
+        <SummaryBar counts={counts} isStreaming={isStreaming} totalArrived={totalArrived} totalExpected={totalExpected} />
+      )}
 
       {error && (
         <div style={{ marginTop: 16 }}>
@@ -189,7 +197,17 @@ export default function ResultPage() {
             />
           )}
 
-          <DecisionPanel result={result} applicationData={applicationData} streamingDone={isDone} />
+          {result.governmentWarning && result.imageQuality && (
+            <DecisionPanel
+              result={{
+                fields: result.fields,
+                governmentWarning: result.governmentWarning,
+                imageQuality: result.imageQuality,
+              }}
+              applicationData={applicationData}
+              streamingDone={isDone}
+            />
+          )}
         </section>
       </div>
     </div>
@@ -457,6 +475,42 @@ function SkeletonRow() {
           <SkeletonLine width="75%" />
         </div>
       </div>
+    </div>
+  );
+}
+
+const MODE_LABEL: Record<string, { name: string; tone: 'dev' | 'prod' }> = {
+  'claude-code': { name: 'Claude Code CLI (local dev)',          tone: 'dev'  },
+  cloud:         { name: 'Claude API (paid)',                    tone: 'dev'  },
+  modal:         { name: 'Modal · Qwen2.5-VL LoRA (deployed)',   tone: 'prod' },
+  sft:           { name: 'Qwen2.5-VL LoRA (local GPU)',          tone: 'prod' },
+  onprem:        { name: 'On-prem VLM',                          tone: 'prod' },
+  mock:          { name: 'Mock (test fixture)',                  tone: 'dev'  },
+};
+
+function LatencyBadge({ timing }: { timing: { inferenceMode: string; extractorMs: number; rulesMs: number; totalMs: number } }) {
+  const meta = MODE_LABEL[timing.inferenceMode] || { name: timing.inferenceMode, tone: 'dev' as const };
+  const formatMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms} ms`);
+  const isProd = meta.tone === 'prod';
+  return (
+    <div
+      aria-label="Inference timing"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 10,
+        padding: '6px 12px', marginTop: 8,
+        borderRadius: 999, fontSize: 13,
+        background: isProd ? 'var(--status-match-bg)' : 'var(--status-info-bg, #eef1f7)',
+        color:      isProd ? 'var(--status-match-fg)' : 'var(--status-info-fg, #1a4480)',
+        border: '1px solid ' + (isProd ? 'var(--status-match-border)' : 'var(--color-line)'),
+      }}
+    >
+      <span style={{ fontWeight: 700 }}>{formatMs(timing.totalMs)}</span>
+      <span style={{ opacity: 0.7 }}>·</span>
+      <span>{meta.name}</span>
+      <span style={{ opacity: 0.7 }}>·</span>
+      <span style={{ opacity: 0.85 }} title="extractor / rules engine">
+        extractor {formatMs(timing.extractorMs)} + rules {formatMs(timing.rulesMs)}
+      </span>
     </div>
   );
 }

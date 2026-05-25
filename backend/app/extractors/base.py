@@ -32,10 +32,16 @@ class WarningStyle:
     casing_all_caps: bool   # is 'GOVERNMENT WARNING' rendered in all caps?
     heading_bold: bool      # is 'GOVERNMENT WARNING' bold?
     body_bold: bool         # is the body bold? (it should NOT be)
-    approx_font_mm: Optional[float] = None  # measured text height in mm; None if uncertain
+    approx_font_mm: Optional[float] = None  # DEPRECATED — kept for old extractors.
+                                            # Use bbox+line_count+DPI instead.
     contrast_ok: Optional[bool] = None      # adequate contrast vs background
     separate_and_apart: Optional[bool] = None  # visually separated from other copy
-    bbox: Optional[tuple[int, int, int, int]] = None
+    bbox: Optional[tuple[int, int, int, int]] = None  # warning text region (px)
+    # Number of body-text lines in the warning. Used together with the
+    # bbox height and the image's DPI to compute mm per line:
+    #   mm = (bbox_height / line_count) / dpi * 25.4
+    # The rules engine performs the threshold comparison.
+    body_line_count: Optional[int] = None
 
 
 @dataclass
@@ -51,6 +57,10 @@ class ExtractedLabel:
     image_quality_score: float = 1.0
     image_legible: bool = True
     image_quality_note: Optional[str] = None
+    # DPI of the source image (x, y). Set by the image_pipeline when the
+    # JPEG/PNG carries DPI metadata; None for screenshots or stripped
+    # images. Enables the deterministic type-size check.
+    image_dpi: Optional[tuple[int, int]] = None
 
 
 class LabelExtractor(ABC):

@@ -10,35 +10,32 @@ PYTEST   := $(VENV)/bin/pytest
 API      ?= http://localhost:8000/api
 PORT     ?= 8000
 
-.PHONY: help install install-sft test eval-synth eval-real \
-        eval-replay-qwen eval-replay-internvl3 eval-replay-donut eval-compare-all \
-        serve-mock serve-cloud serve-max serve-sft-qwen serve-modal \
+.PHONY: help install install-sft test test-synth \
+        serve serve-api serve-modal \
         modal-deploy modal-upload-adapter \
         demo-single demo-batch demo-all \
-        build-eval-data clean
+        audit-reals uat-pack scrape-ttb \
+        clean
 
 help:
 	@echo "Targets:"
+	@echo ""
+	@echo "  --- Run locally (Claude Code CLI — uses your Max subscription) ---"
 	@echo "  install         Create backend venv and install Python deps"
-	@echo "  install-sft     Also install heavy ML deps (torch, transformers, peft) for sft mode"
-	@echo "  test            Run the full pytest suite (rules engine + integration + synthetic gate)"
-	@echo "  eval-synth      Boot backend in MOCK mode and run synthetic eval; MUST be 100% (CI gate)"
-	@echo "  eval-real       Run real eval against test/eval/data (requires backend already running)"
-	@echo "  eval-replay-qwen     Replay Qwen outputs through the local rules engine"
-	@echo "  eval-replay-internvl3 Replay InternVL3-2B outputs"
-	@echo "  eval-replay-donut    Replay Donut v2 outputs"
-	@echo "  eval-compare-all     Side-by-side table of all model reports vs Claude"
-	@echo "  build-eval-data Build/refresh the stratified COLA Cloud sample (idempotent)"
-	@echo "  serve-mock      Run backend in mock mode (no API key required)"
-	@echo "  serve-cloud     Run backend in cloud mode (reads backend/.env; pay-per-token API)"
-	@echo "  serve-max       Run backend via Claude Code CLI (uses Max subscription, no API key)"
-	@echo "  serve-sft-qwen  Run backend with the local Qwen2.5-VL LoRA adapter (no network)"
-	@echo "  serve-modal     Run backend routing inference to a Modal-hosted Qwen endpoint"
-	@echo "  modal-deploy    Deploy backend/modal_deploy/serve_qwen.py to Modal"
-	@echo "  modal-upload-adapter  Upload trained LoRA adapter to Modal's persistent volume"
-	@echo "  demo-single      Run 3 single-label demos (one per verdict bucket) against local backend"
-	@echo "  demo-batch       Run the 9-label batch demo against local backend"
-	@echo "  demo-all         Run every single-label demo + the batch (full manual test sweep)"
+	@echo "  serve           Run backend in claude-code mode (no API token spend; needs 'claude' CLI logged in)"
+	@echo "  serve-api       Run backend in cloud mode using ANTHROPIC_API_KEY (pay-per-token)"
+	@echo "  test            Run the full pytest suite (115 tests, ~3 seconds)"
+	@echo ""
+	@echo "  --- Deploy to Modal (Qwen LoRA, scale-to-zero GPU) ---"
+	@echo "  modal-upload-adapter   Upload the trained LoRA adapter to Modal's persistent volume"
+	@echo "  modal-deploy           Deploy the Qwen extractor to Modal; prints the endpoint URL"
+	@echo "  serve-modal            Run backend locally routing inference to the deployed Modal endpoint"
+	@echo ""
+	@echo "  --- Demo scripts (require backend already running) ---"
+	@echo "  demo-single     3 single-label demos covering all three verdict buckets"
+	@echo "  demo-batch      9-image batch demo"
+	@echo "  demo-all        Every single + the batch in one sweep"
+	@echo ""
 	@echo "  clean           Remove caches"
 
 install:
@@ -46,106 +43,48 @@ install:
 	$(PIP) install --upgrade pip
 	$(PIP) install -r backend/requirements.txt
 
-# Heavy ML deps for sft mode (~3 GB). Run after `make install`.
-# CUDA users: install torch from https://pytorch.org/ FIRST with the right CUDA wheel.
+# Heavy ML deps for local sft mode (~3 GB). Not needed when using Modal.
 install-sft:
 	$(PIP) install -r backend/requirements-sft.txt
 
 test:
 	cd backend && ../$(PY) -m pytest
 
-# Deterministic CI gate. The pytest wrapper in backend/tests/test_eval_synthetic.py
-# boots its own backend in mock mode and asserts 100%.
-eval-synth:
-	cd backend && ../$(PY) -m pytest tests/test_eval_synthetic.py -v
-
-# Real-data accuracy report. NOT a hard gate — see test/EVALUATION.md §3.
-# The backend must already be running in CLOUD mode (or onprem) before this.
-eval-real:
-	$(PY) test/eval/run_eval.py --api $(API) \
-	    --csv test/eval/data/cola_sample.csv \
-	    --images test/eval/data/images \
-	    --out test/eval
-
-# Replay model outputs (from a Colab eval notebook) through the local rules
-# engine and produce a test/eval/{label}_report.json — apples-to-apples vs
-# test/eval/report.json (Claude). Each target points at a different JSONL
-# default that matches where the respective eval notebook auto-downloads it.
-eval-replay-qwen:
-	$(PY) test/eval/replay_extractions.py \
-	    --jsonl ~/Downloads/qwen_outputs.jsonl \
-	    --label qwen \
-	    --out test/eval/qwen_report.json
-
-eval-replay-internvl3:
-	$(PY) test/eval/replay_extractions.py \
-	    --jsonl ~/Downloads/internvl3_outputs.jsonl \
-	    --label internvl3 \
-	    --out test/eval/internvl3_report.json
-
-eval-replay-donut:
-	$(PY) test/eval/replay_extractions.py \
-	    --jsonl ~/Downloads/donut_outputs.jsonl \
-	    --label donut \
-	    --out test/eval/donut_report.json
-
-# Aggregate all model reports + Claude into a single side-by-side comparison
-# table. Reads whatever {qwen,internvl3,donut}_report.json files exist plus
-# the Claude baseline report.json.
-eval-compare-all:
-	$(PY) test/eval/compare_models.py
-
-build-eval-data:
-	cd test/eval/data && $(PY) ../build_dataset.py
-
-serve-mock:
-	cd backend && INFERENCE_MODE=mock ANTHROPIC_API_KEY="" ../$(UVICORN) app.main:app --reload --port $(PORT)
-
-serve-cloud:
-	cd backend && unset ANTHROPIC_API_KEY && set -a && . ./.env && set +a && \
-	    ../$(UVICORN) app.main:app --reload --port $(PORT)
-
-# Routes extraction through the `claude` CLI; uses your Claude Code / Max
-# subscription quota instead of pay-per-token API credits. Requires Claude
-# Code installed and logged in. No ANTHROPIC_API_KEY needed.
-serve-max:
+# Local default: claude-code CLI mode (uses your Max subscription, no API spend).
+# Requires the `claude` CLI installed and logged in.
+serve:
 	cd backend && INFERENCE_MODE=claude-code ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
-# Locally-fine-tuned Qwen2.5-VL LoRA — no network, no API keys.
-# Requires `make install-sft`. On Mac (no CUDA), loads the full-precision
-# base (~14 GB unified memory) and runs slow (~30-60s/image). On CUDA hosts
-# loads in BF16 and merges LoRA for fast inference.
-serve-sft-qwen:
-	cd backend && INFERENCE_MODE=sft SFT_MODEL_DIR=models/qwen2_5_vl_7b ANTHROPIC_API_KEY="" \
+# Optional: run against the paid Anthropic API (reads ANTHROPIC_API_KEY from backend/.env).
+serve-api:
+	cd backend && unset ANTHROPIC_API_KEY && set -a && . ./.env && set +a && \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
-# Routes extraction to a Modal-hosted Qwen endpoint. No GPU or heavy ML deps
-# locally; the backend just makes HTTPS calls. Reads MODAL_ENDPOINT_URL from
-# backend/.env (set after `modal deploy backend/modal_deploy/serve_qwen.py`).
+# Backend routes inference to the deployed Modal endpoint (Qwen2.5-VL LoRA on A10G).
+# Needs MODAL_ENDPOINT_URL in backend/.env (printed by `make modal-deploy`).
 serve-modal:
 	cd backend && set -a && . ./.env && set +a && INFERENCE_MODE=modal ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
-# Deploy Qwen to Modal. One-time: `pip install modal && modal token new`.
-# After deploy, copy the printed URL into backend/.env as MODAL_ENDPOINT_URL.
+# Deploy the Qwen extractor + FastAPI backend to Modal. One-time bootstrap:
+#   $(VENV)/bin/pip install modal
+#   $(VENV)/bin/modal token new
 modal-deploy:
-	modal deploy backend/modal_deploy/serve_qwen.py
+	$(VENV)/bin/modal deploy backend/modal_deploy/serve_qwen.py
 
-# Upload the trained LoRA adapter to Modal's persistent volume.
-# Idempotent — re-running with new weights overwrites the volume contents.
+# Upload the trained LoRA adapter to Modal's persistent volume (idempotent).
 SFT_MODEL_DIR ?= backend/models/qwen2_5_vl_7b
 modal-upload-adapter:
-	modal volume create ttb-qwen-adapter 2>/dev/null || true
-	modal volume put --force ttb-qwen-adapter $(SFT_MODEL_DIR)/adapter /adapter
+	$(VENV)/bin/modal volume create ttb-qwen-adapter 2>/dev/null || true
+	$(VENV)/bin/modal volume put --force ttb-qwen-adapter $(SFT_MODEL_DIR)/adapter /adapter
 
 # Manual demo scripts — exercise every verdict bucket against a running backend.
-# Requires `make serve-mock` (or serve-cloud / serve-modal) running on :8000.
-# See test/manual/README.md for full details.
+# Backend must already be running (make serve  OR  make serve-modal).
 
 demo-single:
 	@echo "Demoing 3 single-label requests — one per verdict bucket"
-	@echo "(start the backend in another terminal: make serve-mock)"
+	@echo "(start the backend in another terminal: make serve)"
 	@echo
 	bash test/manual/single_01_1_old_tom_spirits_auto_pass.sh                | tail -3
 	@echo "..."
@@ -161,6 +100,36 @@ demo-all:
 	@for f in test/manual/single_*.sh; do bash "$$f" | tail -1; done
 	@echo
 	bash test/manual/batch_all_9.sh
+
+# Cross-verify every clean real COLA against the live backend.
+# Writes test/eval/real_audit.json + test/eval/REAL_AUDIT.md.
+# Takes ~12-20 minutes against the claude-code path (slow per-call).
+# Backend must be running (make serve OR make serve-modal).
+audit-reals:
+	$(PY) test/eval/audit_real_samples.py
+
+# Export every clean real label image + paired application data so the
+# agent can drive the upload/batch workflow manually (labels in one
+# place, app data in another). Idempotent.
+# Output: test/eval/uat_pack/{labels/, applications.csv, applications.json}
+uat-pack:
+	$(PY) test/eval/export_for_uat.py
+
+# Pull fresh COLAs directly from the TTB Public COLA Registry — full
+# Form 5100.31 data including the bottler line, plus the actual label
+# image with DPI metadata. ~1 request/sec polite rate; 50 COLAs ≈ 3 min.
+# Output: test/eval/data/ttb_live/{ttb_live.csv, images/<ttb_id>.jpg}
+# Idempotent: re-runs skip ttb_ids already in ttb_live.csv.
+TTB_COUNT ?= 50
+scrape-ttb:
+	$(PY) test/eval/scrape_ttb_registry.py --count $(TTB_COUNT)
+
+# Audit the engine against the scraped TTB-live tier (real Form 5100.31
+# data, including the bottler line). All scraped labels are TTB-approved,
+# so the engine's "auto-pass" rate on this set is the real-data accuracy
+# metric. Writes test/eval/TTB_LIVE_AUDIT.md + ttb_live_audit.json.
+audit-ttb-live:
+	$(PY) test/eval/audit_ttb_live.py
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

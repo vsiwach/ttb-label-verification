@@ -33,6 +33,10 @@ class ImageMeasurement:
     score: float        # 0..1 legibility score
     legible: bool
     note: Optional[str] = None
+    # JPEG/PNG DPI metadata when present (x, y); None for screenshots /
+    # stripped images. Needed for the 27 CFR 16.22 type-size check —
+    # without DPI we can't convert pixel measurements to mm.
+    dpi: Optional[tuple[int, int]] = None
 
 
 _MIN_LEGIBLE_DIM = 400         # min(width, height) below this is "low resolution"
@@ -91,7 +95,23 @@ def assess_image(image_bytes: bytes) -> ImageMeasurement:
     elif min_dim < _TARGET_DIM:
         note = "Image is legible but could be sharper for best results."
 
-    return ImageMeasurement(width=w, height=h, score=score, legible=legible, note=note)
+    # DPI metadata — present for TTB-scraped labels and high-quality
+    # scans; absent for phone photos and stripped images. The rules
+    # engine uses this to convert pixel measurements to mm for the
+    # type-size check.
+    dpi_tuple: Optional[tuple[int, int]] = None
+    raw_dpi = img.info.get("dpi")
+    if raw_dpi and len(raw_dpi) == 2:
+        try:
+            xd, yd = int(round(raw_dpi[0])), int(round(raw_dpi[1]))
+            if 50 <= xd <= 2400 and 50 <= yd <= 2400:  # sanity bounds
+                dpi_tuple = (xd, yd)
+        except (TypeError, ValueError):
+            pass
+
+    return ImageMeasurement(
+        width=w, height=h, score=score, legible=legible, note=note, dpi=dpi_tuple,
+    )
 
 
 # ── Ephemeral crop store ────────────────────────────────────────────────────

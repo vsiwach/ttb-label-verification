@@ -8,14 +8,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    inference_mode: Literal["mock", "cloud", "claude-code", "onprem", "sft", "modal"] = "mock"
+    # Default is "cloud" for local development (Claude Vision via Anthropic API).
+    # Production deploys set INFERENCE_MODE=modal to route to the Qwen2.5-VL LoRA
+    # endpoint running on Modal. "mock" is retained as a test-only mode.
+    inference_mode: Literal["mock", "cloud", "claude-code", "onprem", "sft", "modal"] = "cloud"
 
     # Comma-separated origins; parsed in main.py
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # Cloud adapter (not exercised in mock mode)
     cloud_provider: Literal["anthropic", "openai", "google"] = "anthropic"
-    cloud_model: str = "claude-sonnet-4-6"
+    cloud_model: str = "claude-sonnet-4-5"
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     google_api_key: str = ""

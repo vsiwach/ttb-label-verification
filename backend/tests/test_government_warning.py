@@ -22,9 +22,11 @@ def test_exact_verbatim_warning_is_compliant():
     assert a.present is True
     assert a.verbatimMatch is True
     assert a.casingBoldOk is True
-    assert a.fontSizeOk is True
     assert a.contrastOk is True
     assert a.separateAndApart is True
+    # No deviations — type size (16.22) is intentionally not verified
+    # (digital image has no DPI/scale reference). Documented limitation,
+    # not a deviation.
     assert a.deviations == []
 
 
@@ -85,11 +87,11 @@ def test_title_case_paraphrased_small_warning_has_three_deviations():
     a = analyze_warning(detected, present=True, style=style, container_ml=355.0)
     assert a.verbatimMatch is False
     assert a.casingBoldOk is False
-    assert a.fontSizeOk is False
     kinds = {d.type for d in a.deviations}
     assert "casing" in kinds
     assert "wording" in kinds
-    assert "fontSize" in kinds
+    # fontSize check intentionally removed — not deterministically
+    # verifiable from a digital image. See DESIGN.md §10.
 
 
 def test_near_verbatim_single_character_ocr_slip_is_compliant_with_advisory():
@@ -133,19 +135,6 @@ def test_missing_warning_flags_with_citation():
     assert "16.21" in a.deviations[0].message  # cites the regulation
 
 
-def test_unmeasurable_font_size_returns_borderline():
-    """When the model can't measure font height, fontSizeOk is False and the
-    deviation asks for manual confirmation rather than a hard fail message."""
-    style = WarningStyle(
-        casing_all_caps=True, heading_bold=True, body_bold=False,
-        approx_font_mm=None, contrast_ok=True, separate_and_apart=True,
-    )
-    a = analyze_warning(VERBATIM_GOVERNMENT_WARNING, present=True, style=style, container_ml=750.0)
-    assert a.fontSizeOk is False
-    msg = next((d.message for d in a.deviations if d.type == "fontSize"), "")
-    assert "could not be measured" in msg.lower() or "confirm" in msg.lower()
-
-
 def test_body_bold_is_flagged():
     style = WarningStyle(
         casing_all_caps=True, heading_bold=True, body_bold=True,  # body should NOT be bold
@@ -174,3 +163,62 @@ def test_not_separate_and_apart_is_flagged():
     a = analyze_warning(VERBATIM_GOVERNMENT_WARNING, present=True, style=style, container_ml=750.0)
     assert a.separateAndApart is False
     assert any(d.type == "separation" for d in a.deviations)
+
+
+# ── Type-size check via bbox + DPI (new in PR adding 16.22 mm verification) ──
+
+def _style_with_bbox(line_count: int = 5, bbox_h: int = 200) -> WarningStyle:
+    """Build a WarningStyle with the bbox/line-count needed for type-size."""
+    return WarningStyle(
+        casing_all_caps=True, heading_bold=True, body_bold=False,
+        contrast_ok=True, separate_and_apart=True,
+        bbox=(100, 1000, 800, bbox_h),
+        body_line_count=line_count,
+    )
+
+
+def test_type_size_passes_when_bbox_and_dpi_yield_compliant_mm():
+    """200 px / 5 lines / 200 DPI = 0.20 in/line = 5.08 mm/line — well over 2 mm."""
+    style = _style_with_bbox(line_count=5, bbox_h=200)
+    a = analyze_warning(
+        VERBATIM_GOVERNMENT_WARNING, present=True, style=style,
+        container_ml=750.0, image_dpi=(200, 200),
+    )
+    assert a.fontSizeOk is True
+    assert not any(d.type == "fontSize" for d in a.deviations)
+
+
+def test_type_size_fails_when_measured_below_minimum():
+    """30 px / 5 lines / 200 DPI = 0.030 in/line = 0.76 mm/line — below 2 mm."""
+    style = _style_with_bbox(line_count=5, bbox_h=30)
+    a = analyze_warning(
+        VERBATIM_GOVERNMENT_WARNING, present=True, style=style,
+        container_ml=750.0, image_dpi=(200, 200),
+    )
+    assert a.fontSizeOk is False
+    assert any(d.type == "fontSize" for d in a.deviations)
+
+
+def test_type_size_omitted_when_dpi_missing():
+    """No DPI → fontSizeOk is None (agent confirms manually). No deviation."""
+    style = _style_with_bbox(line_count=5, bbox_h=200)
+    a = analyze_warning(
+        VERBATIM_GOVERNMENT_WARNING, present=True, style=style,
+        container_ml=750.0, image_dpi=None,
+    )
+    assert a.fontSizeOk is None
+    assert not any(d.type == "fontSize" for d in a.deviations)
+
+
+def test_type_size_omitted_when_bbox_missing():
+    """No bbox → fontSizeOk is None even with DPI."""
+    style = WarningStyle(
+        casing_all_caps=True, heading_bold=True, body_bold=False,
+        contrast_ok=True, separate_and_apart=True,
+        bbox=None, body_line_count=5,
+    )
+    a = analyze_warning(
+        VERBATIM_GOVERNMENT_WARNING, present=True, style=style,
+        container_ml=750.0, image_dpi=(200, 200),
+    )
+    assert a.fontSizeOk is None

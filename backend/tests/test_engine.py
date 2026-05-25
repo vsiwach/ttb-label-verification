@@ -128,9 +128,10 @@ def test_scenario_C_warning_violation():
     r = verify(extracted, app)
     assert r.governmentWarning.verbatimMatch is False
     assert r.governmentWarning.casingBoldOk is False
-    assert r.governmentWarning.fontSizeOk is False
     kinds = {d.type for d in r.governmentWarning.deviations}
-    assert {"casing", "wording", "fontSize"}.issubset(kinds)
+    assert {"casing", "wording"}.issubset(kinds)
+    # fontSize removed from contract — out of scope, not flagged here.
+    assert "fontSize" not in kinds
     assert group_for(r) == "needs-review"
 
 

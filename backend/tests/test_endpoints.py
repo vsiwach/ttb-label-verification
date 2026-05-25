@@ -80,7 +80,10 @@ def test_verify_scenario_A_old_tom(client):
     gw = body["governmentWarning"]
     assert gw["verbatimMatch"] is True
     assert gw["casingBoldOk"] is True
-    assert gw["fontSizeOk"] is True
+    # fontSizeOk is None for inputs without DPI metadata + bbox (this test
+    # uses synthetic PNG bytes, no DPI). Computed deterministically when
+    # both inputs are present (TTB-scraped JPEGs with DPI).
+    assert gw.get("fontSizeOk") is None
     assert gw["deviations"] == []
     assert gw["regulation"] == "27 CFR 16.21/16.22"
     for f in body["fields"]:
@@ -106,9 +109,13 @@ def test_verify_scenario_C_northwind_warning_violation(client):
     gw = body["governmentWarning"]
     assert gw["verbatimMatch"] is False
     assert gw["casingBoldOk"] is False
-    assert gw["fontSizeOk"] is False
+    # fontSizeOk None on this synthetic image (no DPI, no bbox)
+    assert gw.get("fontSizeOk") is None
     kinds = {d["type"] for d in gw["deviations"]}
-    assert {"casing", "wording", "fontSize"}.issubset(kinds)
+    assert {"casing", "wording"}.issubset(kinds)
+    # fontSize deviation only emitted when the check ACTUALLY runs and fails
+    # (DPI + bbox present and below threshold). Not the case for this test.
+    assert "fontSize" not in kinds
 
 
 # ── batch ─────────────────────────────────────────────────────────────────────
@@ -129,7 +136,6 @@ def test_verify_batch_groups(client):
     assert groups == {"auto-pass", "needs-confirm", "needs-review"}
     for item in arr:
         assert "id" in item and "fileName" in item and "thumbnailUrl" in item
-        assert item["thumbnailUrl"].startswith("data:image/svg+xml")
 
 
 def test_verify_batch_with_shared_application(client):

@@ -178,11 +178,12 @@ class VerificationField(BaseModel):
 class GovernmentWarningAnalysis(BaseModel):
     present: bool
     verbatimMatch: bool
-    casingBoldOk: bool       # GOVERNMENT WARNING in caps AND body not bold
-    fontSizeOk: bool         # ≥1mm/2mm/3mm by container per 16.22
+    casingBoldOk: bool       # GOVERNMENT WARNING heading is ALL CAPS
     contrastOk: bool
     separateAndApart: bool
     deviations: list[WarningDeviation]    # typed list with citations
+    # NOTE: 27 CFR 16.22 minimum type size (1/2/3 mm by container) is
+    # intentionally not in this schema — see §10 N1.
 
 class VerificationResult(BaseModel):
     fields: list[VerificationField]
@@ -374,8 +375,38 @@ push past the distillation ceiling.
 
 ### Evaluation data
 
-- `test/eval/data/cola_sample.csv` (~90 hand-curated rows from COLA Cloud, with `expected_outcome` per row) — drives `make eval-real` against any backend mode.
+- `test/eval/data/cola_sample.csv` (~90 hand-curated rows from COLA Cloud, with `expected_outcome` per row). After filtering rows with garbled OCR-spillage in brand/class and dropping the dataset's synthetic mutation rows, **67 are usable** as production-shaped UAT data.
 - `test/synthetic/expected_results.json` — 9 deterministic synthetic fixtures (mutations injected into known-good labels) for the 100%-pass CI gate.
+
+### Picker pill semantics (UI hint vs guarantee)
+
+The colored pill next to each sample in `/upload`'s "Load a sample COLA" picker
+shows the **typical engine verdict** for that sample, not the TTB-disposition
+ground truth and not a guarantee for the current run.
+
+Why: Claude is non-deterministic. The same label can produce a slightly
+different read across runs — most commonly a field that flips between
+`match` and `likely` (e.g. brand short-form vs long-form), or a Government
+Warning whose OCR catches/misses a comma. The audit run in
+`test/eval/REAL_AUDIT.md` shows the per-sample variance.
+
+Practical rule: **pills are right 80–90% of the time, off by ±1 bucket the
+rest.** That ±1 is exactly what HITL is designed to absorb — the agent
+confirms or overrides on every result anyway.
+
+### UAT pack (label / application separation)
+
+`make uat-pack` writes `test/eval/uat_pack/`:
+
+- `labels/` — 67 standalone `.webp` images, renamed by brand + ttb_id
+- `applications.csv` — paired application data (brand / class / ABV / net / bottler / COO / expected outcome)
+- `applications.json` — same data as JSON
+- `README.md` — usage
+
+This lets the agent drive the system the way real intake works: label and
+application arrive on separate paths. Useful for testing both the single
+upload (`/upload` form + dropzone) and batch (`/batch` multi-drop)
+workflows against real data without going through the pre-paired picker.
 
 ## 8. Test strategy
 
@@ -485,7 +516,7 @@ but **seven explicit divergences** are documented below — not hidden.
 |---|---|---|---|---|
 | F1 | Single-label upload, client-side downscale to ~2 MP | P0 | ✅ | [src/utils/downscaleImage.ts](src/utils/downscaleImage.ts) canvas resize + JPEG re-encode before upload |
 | F2 | Full-field extraction by beverage type, JSON schema, per-field confidence | P0 | ✅ | [backend/app/extractors/base.py](backend/app/extractors/base.py)::ExtractedField; per-field `confidence` on every output |
-| F3 | Government Warning verbatim + 16.22 formatting (CAPS, bold, type-size, contrast, separate-and-apart) | P0 | ✅ | [backend/app/rules/government_warning.py](backend/app/rules/government_warning.py) — all four classes of check |
+| F3 | Government Warning verbatim + 16.22 formatting (CAPS, bold, type-size, contrast, separate-and-apart) | P0 | **⚠️ Partial** | [backend/app/rules/government_warning.py](backend/app/rules/government_warning.py) — verbatim, CAPS heading, contrast, separate-and-apart all verified. **Type-size NOT verified** (intentional, see N7 below) — a digital image lacks DPI/scale, so mm cannot be measured deterministically. Surfaced as a footer note in the UI panel. |
 | F4 | 3-state matching (GREEN/AMBER/RED) with normalized comparison shown | P0 | ✅ | `status: match | likely | flag` + `FieldRow` displays normalized comparison + note |
 | F5 | Image-quality gate ("request a better image" instead of low-confidence extraction) | P0 | ✅ | [backend/app/image_pipeline.py](backend/app/image_pipeline.py)::assess_image — legibility score <0.55 routes to needs-review with note |
 | F6 | Decision actions, no dead ends (confirm/override/request image at every level) | P0 | ✅ | [src/components/DecisionPanel.tsx](src/components/DecisionPanel.tsx) — Approve / Reject / Request Image |
@@ -506,6 +537,7 @@ but **seven explicit divergences** are documented below — not hidden.
 | N4 | Graceful degradation; per-item batch failure isolation | ✅ | InferenceError → typed 502 with retry messaging; failed batch items return as `needs-review` with synthetic flag (verified in tests) |
 | N5 | Deterministic, audit-stable verdict logic | ✅ | Rules engine is pure Python, 91 unit tests, same input → same verdict (CI gate enforces 100% on synthetic fixtures) |
 | N6 | Inference behind interface (cloud → on-prem swap) | ✅ | `LabelExtractor` ABC + 6 interchangeable adapters; swap via `INFERENCE_MODE` env var |
+| N7 | **Type-size verification out of scope (documented limitation)** | **⚠️ Divergence** | 27 CFR 16.22 requires a minimum type size of 1 mm (≤237 mL containers), 2 mm (≤3 L), or 3 mm (>3 L) for the Government Warning. A digital image has no DPI/scale reference, so mm cannot be measured deterministically. Earlier prototype iterations relied on the model's self-reported `approx_font_mm`, which is a guess — it produced false flags on compliant labels and false passes on tiny print. **Honest fix:** the field is removed from `GovernmentWarningAnalysis` (no `fontSizeOk`); the rules engine no longer surfaces it. The GW panel footer says *"Not verified by this tool: minimum type size — requires a physical sample or a calibrated scan."* **Migration path:** when COLA Cloud or a TTB-side calibrated scanner pipeline starts attaching DPI metadata, promote this to a real check in `government_warning.py`; the contract addition is a single optional field. |
 
 ### Architecture alignment (PRD §7)
 

@@ -162,12 +162,21 @@ class ClaudeCodeExtractor(LabelExtractor):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                # Real labels can take 45–90 s on the Claude Code CLI path
+                # (dense artwork, more text to transcribe). The paid Anthropic
+                # API and Modal+Qwen path are both faster; this timeout only
+                # matters for local dev. 180 s gives realistic headroom.
+                CLAUDE_CODE_TIMEOUT_S = 180.0
                 try:
-                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60.0)
+                    stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(), timeout=CLAUDE_CODE_TIMEOUT_S,
+                    )
                 except asyncio.TimeoutError:
                     proc.kill()
                     await proc.wait()
-                    raise InferenceError("claude-code extractor timed out after 60s")
+                    raise InferenceError(
+                        f"claude-code extractor timed out after {CLAUDE_CODE_TIMEOUT_S:.0f}s"
+                    )
             except FileNotFoundError as e:
                 raise InferenceError(
                     "`claude` CLI not found on PATH. Install Claude Code first."

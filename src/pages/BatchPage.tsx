@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { ApplicationData, BatchItemResult, VerificationField } from '../api/types';
 import { verifyBatch } from '../api/client';
-import { SAVED_APPLICATIONS } from '../api/mockData';
+import { SAMPLE_APPLICATIONS as SAVED_APPLICATIONS } from '../api/sampleApplications';
 import { verifyStore, type UploadedImage } from '../store/verifyStore';
 import Alert from '../components/Alert';
 import Button from '../components/Button';
@@ -10,7 +10,7 @@ import FileDropzone from '../components/FileDropzone';
 import StatusBadge from '../components/StatusBadge';
 import {
   IconArrowL, IconArrowR, IconCheck, IconChevronR, IconClock,
-  IconFlag, IconFolder, IconLightning, IconWarn,
+  IconFlag, IconFolder, IconWarn,
 } from '../components/icons';
 import { formatBytes } from '../utils/downscaleImage';
 
@@ -46,12 +46,7 @@ function groupCounts(items: BatchItemResult[]): Record<GroupKey, number> {
   return c;
 }
 
-type QueuedFile = File | { name: string };
-
-function fakeFile(idx: number, brandPool: string[]): { name: string } {
-  const brand = brandPool[idx % brandPool.length];
-  return { name: `${brand.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${String(idx).padStart(3, '0')}.jpg` };
-}
+type QueuedFile = File;
 
 function guessAppDataFor(item: BatchItemResult): ApplicationData {
   const f = (item.fileName || '').toLowerCase();
@@ -68,22 +63,18 @@ export default function BatchPage() {
   const [items, setItems]   = useState<BatchItemResult[]>([]);
   const [shared, setShared] = useState<ApplicationData | null>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [autoPassOpen, setAutoPassOpen] = useState(false);
+  // Auto-pass items still need agent confirmation — open by default so the
+  // agent sees every item and isn't tempted to skip a bucket.
+  const [autoPassOpen, setAutoPassOpen] = useState(true);
 
   function handleFiles(list: File[]) { setFiles(prev => [...prev, ...list]); }
-  function addDemoBatch(n: number) {
-    const pool = ['OLD TOM DISTILLERY', "STONE'S THROW", 'NORTHWIND BREWING'];
-    const out: QueuedFile[] = [];
-    for (let i = 0; i < n; i++) out.push(fakeFile(files.length + i, pool));
-    setFiles(prev => [...prev, ...out]);
-  }
   function clearFiles() { setFiles([]); setItems([]); setPhase('upload'); }
 
   async function startProcessing() {
     if (files.length === 0) return;
     setPhase('processing');
     setItems([]);
-    await verifyBatch(files as File[], shared ?? undefined, (item) => {
+    await verifyBatch(files, shared ?? undefined, (item) => {
       setItems(prev => [...prev, item]);
     });
     setPhase('done');
@@ -134,7 +125,6 @@ export default function BatchPage() {
           shared={shared}
           setShared={setShared}
           onFiles={handleFiles}
-          onDemo={addDemoBatch}
           onClear={clearFiles}
           onStart={startProcessing}
         />
@@ -163,12 +153,11 @@ interface UploadPanelProps {
   shared: ApplicationData | null;
   setShared: (a: ApplicationData | null) => void;
   onFiles: (files: File[]) => void;
-  onDemo: (n: number) => void;
   onClear: () => void;
   onStart: () => void;
 }
 
-function UploadPanel({ files, shared, setShared, onFiles, onDemo, onClear, onStart }: UploadPanelProps) {
+function UploadPanel({ files, shared, setShared, onFiles, onClear, onStart }: UploadPanelProps) {
   const totalBytes = files.reduce((a, f) => a + ((f as File).size || 0), 0);
   const ready = files.length > 0;
 
@@ -183,27 +172,6 @@ function UploadPanel({ files, shared, setShared, onFiles, onDemo, onClear, onSta
         buttonLabel="Choose files…"
         icon={IconFolder}
       />
-
-      <div style={{ marginTop: 16, padding: 16, background: 'var(--color-primary-tint-2)',
-        border: '1px solid var(--color-primary-tint)', borderRadius: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <IconLightning size={18} style={{ color: 'var(--color-primary)' }} />
-          <strong>Demo without dragging files</strong>
-        </div>
-        <p style={{ margin: '0 0 12px', color: 'var(--color-ink-muted)', fontSize: 14 }}>
-          Populate the queue with mock items that cycle through the three demo
-          scenarios (OLD TOM, STONE'S THROW, NORTHWIND).
-        </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {[25, 75, 250].map(n => (
-            <button key={n} type="button" className="btn btn--secondary"
-              style={{ minHeight: 36, padding: '0 12px', fontSize: 14 }}
-              onClick={() => onDemo(n)}>
-              + Add {n} mock labels
-            </button>
-          ))}
-        </div>
-      </div>
 
       <div style={{ marginTop: 24 }}>
         <h3 style={{ margin: '0 0 8px', fontSize: 'var(--fs-18)' }}>Optional: attach a shared application</h3>

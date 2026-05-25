@@ -68,7 +68,6 @@ export function deriveReasons(result: VerificationResult): SuggestedReason[] {
       { key: 'present',          msg: 'Government Warning not detected on the label.' },
       { key: 'verbatimMatch',    msg: 'Government Warning wording does not match the required verbatim text.' },
       { key: 'casingBoldOk',     msg: '"GOVERNMENT WARNING" must be in all capitals and bold.' },
-      { key: 'fontSizeOk',       msg: 'Warning text is below the minimum required type size.' },
       { key: 'contrastOk',       msg: 'Warning text contrast is below the legibility threshold.' },
       { key: 'separateAndApart', msg: 'Warning must appear separate and apart from other label copy.' },
     ];
@@ -197,7 +196,6 @@ export default function DecisionPanel({ result, applicationData, streamingDone }
     gw.present === false ||
     gw.verbatimMatch === false ||
     gw.casingBoldOk === false ||
-    gw.fontSizeOk === false ||
     gw.contrastOk === false ||
     gw.separateAndApart === false
   ) : false;

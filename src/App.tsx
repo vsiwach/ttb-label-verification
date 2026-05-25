@@ -6,18 +6,12 @@ import UploadPage from './pages/UploadPage';
 import ResultPage from './pages/ResultPage';
 import BatchPage from './pages/BatchPage';
 import ReviewPage from './pages/ReviewPage';
-import SystemPage from './pages/SystemPage';
-import StyleGuidePage from './pages/StyleGuidePage';
-import ApiDemoPage from './pages/ApiDemoPage';
 
 const ROUTE_TITLES: Record<string, string> = {
   '/upload':     'Verify a label',
   '/result':     'Verification result',
   '/batch':      'Review a batch',
   '/review':     'Confirm next',
-  '/system':     'Design system and API contract',
-  '/styleguide': 'Component styleguide',
-  '/api-demo':   'Streaming API demo',
 };
 
 export default function App() {
@@ -53,9 +47,6 @@ export default function App() {
           <Route path="/result"     element={<ResultPage />} />
           <Route path="/batch"      element={<BatchPage />} />
           <Route path="/review"     element={<ReviewPage />} />
-          <Route path="/system"     element={<SystemPage />} />
-          <Route path="/styleguide" element={<StyleGuidePage />} />
-          <Route path="/api-demo"   element={<ApiDemoPage />} />
           <Route path="*"           element={<UploadPage />} />
         </Routes>
       </main>

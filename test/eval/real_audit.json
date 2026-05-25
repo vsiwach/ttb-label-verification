@@ -1,0 +1,1231 @@
+{
+  "summary": {
+    "total": 67,
+    "by_expected": {
+      "auto-pass": 51,
+      "needs-review": 16
+    },
+    "by_engine": {
+      "needs-review": 41,
+      "auto-pass": 15,
+      "needs-confirm": 11
+    },
+    "agreement_matrix": {
+      "auto-pass|needs-review": 36,
+      "auto-pass|auto-pass": 10,
+      "auto-pass|needs-confirm": 5,
+      "needs-review|needs-confirm": 6,
+      "needs-review|needs-review": 5,
+      "needs-review|auto-pass": 5
+    },
+    "errors": []
+  },
+  "results": [
+    {
+      "ttb_id": "25353001000533",
+      "brand": "Arrowood Farm Brewery",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": false,
+      "gw_verbatim": false,
+      "gw_casing": false,
+      "image_filename": "25353001000533_0.webp",
+      "elapsed_s": 39.6
+    },
+    {
+      "ttb_id": "25352001000380",
+      "brand": "Brix City Brewing",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25352001000380_0.webp",
+      "elapsed_s": 31.2
+    },
+    {
+      "ttb_id": "25355001000081",
+      "brand": "Cabro Imported Beer",
+      "beverage": "beer",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 4,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25355001000081_0.webp",
+      "elapsed_s": 36.9
+    },
+    {
+      "ttb_id": "25353001000369",
+      "brand": "City Walk Brewing",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": false,
+      "gw_verbatim": false,
+      "gw_casing": false,
+      "image_filename": "25353001000369_0.webp",
+      "elapsed_s": 30.9
+    },
+    {
+      "ttb_id": "25352001000203",
+      "brand": "Diaspora",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 0,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25352001000203_0.webp",
+      "elapsed_s": 34.5
+    },
+    {
+      "ttb_id": "25353001000809",
+      "brand": "Fonta Flora Brewery",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": false,
+      "gw_casing": true,
+      "image_filename": "25353001000809_0.webp",
+      "elapsed_s": 39.5
+    },
+    {
+      "ttb_id": "25355001000090",
+      "brand": "Gallo Imported Beer",
+      "beverage": "beer",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 4,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25355001000090_0.webp",
+      "elapsed_s": 35.9
+    },
+    {
+      "ttb_id": "25355001000111",
+      "brand": "Golden Extra Imported Beer",
+      "beverage": "beer",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25355001000111_0.webp",
+      "elapsed_s": 26.0
+    },
+    {
+      "ttb_id": "25353001000518",
+      "brand": "Great Notion",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": false,
+      "gw_verbatim": false,
+      "gw_casing": false,
+      "image_filename": "25353001000518_0.webp",
+      "elapsed_s": 30.0
+    },
+    {
+      "ttb_id": "25353001000537",
+      "brand": "Great Notion",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25353001000537_0.webp",
+      "elapsed_s": 30.6
+    },
+    {
+      "ttb_id": "25355001000120",
+      "brand": "Pilsener Imported Beer",
+      "beverage": "beer",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 4,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25355001000120_0.webp",
+      "elapsed_s": 25.5
+    },
+    {
+      "ttb_id": "25355001000121",
+      "brand": "Pilsener Imported Beer",
+      "beverage": "beer",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25355001000121_0.webp",
+      "elapsed_s": 27.3
+    },
+    {
+      "ttb_id": "25353001000206",
+      "brand": "Wander Back Beerworks",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 3,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25353001000206_0.webp",
+      "elapsed_s": 25.8
+    },
+    {
+      "ttb_id": "25353001000194",
+      "brand": "Wander Back Beerworks",
+      "beverage": "beer",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 0,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25353001000194_0.webp",
+      "elapsed_s": 35.7
+    },
+    {
+      "ttb_id": "25351001001005",
+      "brand": "Abashiri",
+      "beverage": "malt",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25351001001005_0.webp",
+      "elapsed_s": 44.6
+    },
+    {
+      "ttb_id": "25339001000092",
+      "brand": "Blendings Winery",
+      "beverage": "malt",
+      "import": "domestic",
+      "expected": "needs-review",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 3,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25339001000092_0.webp",
+      "elapsed_s": 5.7
+    },
+    {
+      "ttb_id": "25329001000751",
+      "brand": "Blendings Winery",
+      "beverage": "malt",
+      "import": "domestic",
+      "expected": "needs-review",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 3,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25329001000751_0.webp",
+      "elapsed_s": 5.9
+    },
+    {
+      "ttb_id": "25329001000754",
+      "brand": "Blendings Winery",
+      "beverage": "malt",
+      "import": "domestic",
+      "expected": "needs-review",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 3,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25329001000754_0.webp",
+      "elapsed_s": 10.1
+    },
+    {
+      "ttb_id": "25330001000656",
+      "brand": "Bokbunja-Mmm",
+      "beverage": "malt",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25330001000656_0.webp",
+      "elapsed_s": 41.1
+    },
+    {
+      "ttb_id": "25359001000032",
+      "brand": "James Bay Distillers",
+      "beverage": "malt",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 1,
+        "likely": 2,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25359001000032_1.webp",
+      "elapsed_s": 53.3
+    },
+    {
+      "ttb_id": "25357001000507",
+      "brand": "Momentum",
+      "beverage": "malt",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 1,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25357001000507_0.webp",
+      "elapsed_s": 44.8
+    },
+    {
+      "ttb_id": "25307001000114",
+      "brand": "Tropical Club",
+      "beverage": "malt",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 1,
+        "flag": 2
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25307001000114_1.webp",
+      "elapsed_s": 85.2
+    },
+    {
+      "ttb_id": "25352001000567",
+      "brand": "Upside Down",
+      "beverage": "malt",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 1,
+        "flag": 1
+      },
+      "gw_present": false,
+      "gw_verbatim": false,
+      "gw_casing": false,
+      "image_filename": "25352001000567_0.webp",
+      "elapsed_s": 40.9
+    },
+    {
+      "ttb_id": "25323001000860",
+      "brand": "Adversary",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 0,
+        "flag": 2
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25323001000860_3.webp",
+      "elapsed_s": 49.2
+    },
+    {
+      "ttb_id": "25358001000051",
+      "brand": "Agave Desmadre",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 6,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": false,
+      "gw_casing": true,
+      "image_filename": "25358001000051_0.webp",
+      "elapsed_s": 20.2
+    },
+    {
+      "ttb_id": "25361001000046",
+      "brand": "Assemblage Bourbon",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 2,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25361001000046_1.webp",
+      "elapsed_s": 45.8
+    },
+    {
+      "ttb_id": "25363001000016",
+      "brand": "Blairmont",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25363001000016_0.webp",
+      "elapsed_s": 62.9
+    },
+    {
+      "ttb_id": "25363001000101",
+      "brand": "Bondstone",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 1,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25363001000101_0.webp",
+      "elapsed_s": 45.5
+    },
+    {
+      "ttb_id": "25319001000056",
+      "brand": "Bunnahabhain",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 1,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25319001000056_0.webp",
+      "elapsed_s": 67.6
+    },
+    {
+      "ttb_id": "25358001000049",
+      "brand": "Cardenal Mendoza",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 2,
+        "flag": 2
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25358001000049_1.webp",
+      "elapsed_s": 6.3
+    },
+    {
+      "ttb_id": "25335001000909",
+      "brand": "Carroll Noir",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 2,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25335001000909_1.webp",
+      "elapsed_s": 62.5
+    },
+    {
+      "ttb_id": "25335001001048",
+      "brand": "Casa Huitzila Blanco",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 2,
+        "flag": 2
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25335001001048_2.webp",
+      "elapsed_s": 73.6
+    },
+    {
+      "ttb_id": "25350001000256",
+      "brand": "Casa Maestri",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 1,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25350001000256_3.webp",
+      "elapsed_s": 74.8
+    },
+    {
+      "ttb_id": "25363001000158",
+      "brand": "Depot Shine",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 1,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25363001000158_0.webp",
+      "elapsed_s": 54.0
+    },
+    {
+      "ttb_id": "25357001000468",
+      "brand": "Foursquare",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 3,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25357001000468_1.webp",
+      "elapsed_s": 62.6
+    },
+    {
+      "ttb_id": "25339001000022",
+      "brand": "Gold Snow",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 2,
+        "flag": 0
+      },
+      "gw_present": false,
+      "gw_verbatim": false,
+      "gw_casing": false,
+      "image_filename": "25339001000022_0.webp",
+      "elapsed_s": 10.1
+    },
+    {
+      "ttb_id": "25357001000092",
+      "brand": "Holyrood Distillery",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 3,
+        "likely": 3,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25357001000092_2.webp",
+      "elapsed_s": 67.4
+    },
+    {
+      "ttb_id": "25359001000027",
+      "brand": "James Bay Distillers",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 1,
+        "likely": 3,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": false,
+      "gw_casing": true,
+      "image_filename": "25359001000027_1.webp",
+      "elapsed_s": 49.0
+    },
+    {
+      "ttb_id": "25363001000263",
+      "brand": "La Que Manda",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 2
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25363001000263_2.webp",
+      "elapsed_s": 74.1
+    },
+    {
+      "ttb_id": "25319001000064",
+      "brand": "Lagavulin",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 0,
+        "likely": 5,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25319001000064_1.webp",
+      "elapsed_s": 66.7
+    },
+    {
+      "ttb_id": "25329001000036",
+      "brand": "Lanthier Winery Distillery",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": false,
+      "gw_verbatim": false,
+      "gw_casing": false,
+      "image_filename": "25329001000036_0.webp",
+      "elapsed_s": 68.3
+    },
+    {
+      "ttb_id": "25356001000607",
+      "brand": "Leiper's Fork Distillery",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 2,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25356001000607_1.webp",
+      "elapsed_s": 82.2
+    },
+    {
+      "ttb_id": "25358001000034",
+      "brand": "Lost Lantern",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 0,
+        "flag": 2
+      },
+      "gw_present": true,
+      "gw_verbatim": false,
+      "gw_casing": true,
+      "image_filename": "25358001000034_1.webp",
+      "elapsed_s": 84.7
+    },
+    {
+      "ttb_id": "25357001000485",
+      "brand": "Lucky One",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 0,
+        "flag": 2
+      },
+      "gw_present": false,
+      "gw_verbatim": false,
+      "gw_casing": false,
+      "image_filename": "25357001000485_0.webp",
+      "elapsed_s": 77.7
+    },
+    {
+      "ttb_id": "25360001000069",
+      "brand": "Lupita",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 4,
+        "likely": 2,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25360001000069_2.webp",
+      "elapsed_s": 15.9
+    },
+    {
+      "ttb_id": "25345001000217",
+      "brand": "Matchbook Distilling Co",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25345001000217_0.webp",
+      "elapsed_s": 50.3
+    },
+    {
+      "ttb_id": "25357001000418",
+      "brand": "Matchbook Distilling Co",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25357001000418_0.webp",
+      "elapsed_s": 78.9
+    },
+    {
+      "ttb_id": "25357001000395",
+      "brand": "Matchbook Distilling Co",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25357001000395_0.webp",
+      "elapsed_s": 79.2
+    },
+    {
+      "ttb_id": "25349001000532",
+      "brand": "O-Mea-Raq 25",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 5,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25349001000532_0.webp",
+      "elapsed_s": 11.5
+    },
+    {
+      "ttb_id": "25363001000020",
+      "brand": "Old Grand Dad",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 1,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25363001000020_0.webp",
+      "elapsed_s": 49.5
+    },
+    {
+      "ttb_id": "25357001000032",
+      "brand": "Osprey Point Whiskey",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 2,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25357001000032_2.webp",
+      "elapsed_s": 79.5
+    },
+    {
+      "ttb_id": "25357001000097",
+      "brand": "Port Askaig",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25357001000097_1.webp",
+      "elapsed_s": 64.4
+    },
+    {
+      "ttb_id": "25330001000119",
+      "brand": "Satoh",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 6,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25330001000119_0.webp",
+      "elapsed_s": 58.4
+    },
+    {
+      "ttb_id": "25344001000120",
+      "brand": "Vetiver Liqueur",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 3,
+        "likely": 0,
+        "flag": 2
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25344001000120_0.webp",
+      "elapsed_s": 54.6
+    },
+    {
+      "ttb_id": "25360001000152",
+      "brand": "Well Made",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25360001000152_0.webp",
+      "elapsed_s": 58.7
+    },
+    {
+      "ttb_id": "25360001000147",
+      "brand": "Well Made",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25360001000147_0.webp",
+      "elapsed_s": 75.2
+    },
+    {
+      "ttb_id": "25347001000067",
+      "brand": "West Track",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 2,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25347001000067_3.webp",
+      "elapsed_s": 54.3
+    },
+    {
+      "ttb_id": "25357001000679",
+      "brand": "Wild Common",
+      "beverage": "spirits",
+      "import": "imported",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 2,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": false,
+      "gw_casing": true,
+      "image_filename": "25357001000679_1.webp",
+      "elapsed_s": 71.0
+    },
+    {
+      "ttb_id": "25293001000376",
+      "brand": "Wolves",
+      "beverage": "spirits",
+      "import": "domestic",
+      "expected": "auto-pass",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 2,
+        "likely": 2,
+        "flag": 1
+      },
+      "gw_present": false,
+      "gw_verbatim": false,
+      "gw_casing": false,
+      "image_filename": "25293001000376_0.webp",
+      "elapsed_s": 58.2
+    },
+    {
+      "ttb_id": "25342001000520",
+      "brand": "Cremisan",
+      "beverage": "wine",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 6,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25342001000520_1.webp",
+      "elapsed_s": 16.5
+    },
+    {
+      "ttb_id": "25342001000556",
+      "brand": "Cremisan",
+      "beverage": "wine",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 6,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25342001000556_1.webp",
+      "elapsed_s": 19.8
+    },
+    {
+      "ttb_id": "25357001000157",
+      "brand": "Moonbeam",
+      "beverage": "wine",
+      "import": "domestic",
+      "expected": "needs-review",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25357001000157_0.webp",
+      "elapsed_s": 15.0
+    },
+    {
+      "ttb_id": "25357001000169",
+      "brand": "Moonbeam",
+      "beverage": "wine",
+      "import": "domestic",
+      "expected": "needs-review",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25357001000169_0.webp",
+      "elapsed_s": 20.4
+    },
+    {
+      "ttb_id": "25357001000142",
+      "brand": "Moonbeam",
+      "beverage": "wine",
+      "import": "domestic",
+      "expected": "needs-review",
+      "engine_verdict": "auto-pass",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": false,
+      "image_filename": "25357001000142_0.webp",
+      "elapsed_s": 21.4
+    },
+    {
+      "ttb_id": "25356001000393",
+      "brand": "Navarre Coulee Vineyards",
+      "beverage": "wine",
+      "import": "domestic",
+      "expected": "needs-review",
+      "engine_verdict": "needs-confirm",
+      "field_counts": {
+        "match": 4,
+        "likely": 1,
+        "flag": 0
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25356001000393_0.webp",
+      "elapsed_s": 15.9
+    },
+    {
+      "ttb_id": "25357001000625",
+      "brand": "Pichon Comtesse",
+      "beverage": "wine",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 5,
+        "likely": 0,
+        "flag": 1
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25357001000625_1.webp",
+      "elapsed_s": 11.1
+    },
+    {
+      "ttb_id": "25343001000327",
+      "brand": "Ruby",
+      "beverage": "wine",
+      "import": "imported",
+      "expected": "needs-review",
+      "engine_verdict": "needs-review",
+      "field_counts": {
+        "match": 4,
+        "likely": 0,
+        "flag": 2
+      },
+      "gw_present": true,
+      "gw_verbatim": true,
+      "gw_casing": true,
+      "image_filename": "25343001000327_1.webp",
+      "elapsed_s": 6.5
+    }
+  ]
+}

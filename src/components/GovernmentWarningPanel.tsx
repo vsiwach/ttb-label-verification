@@ -4,7 +4,7 @@ import { VERBATIM_GOVERNMENT_WARNING } from '../api/types';
 import Alert from './Alert';
 import StatusBadge from './StatusBadge';
 import { SkeletonLine } from './Skeleton';
-import { IconCheck, IconChevronR, IconFlag } from './icons';
+import { IconCheck, IconChevronR, IconFlag, IconWarn } from './icons';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Word-level diff (LCS) between detected and required text.
@@ -95,14 +95,17 @@ const CHECKS: Array<{ key: keyof GovernmentWarningAnalysis; title: string; ok: s
   { key: 'present',          title: 'Statement present',                                ok: 'Found on the label',                  bad: 'Not detected on the label' },
   { key: 'verbatimMatch',    title: 'Exact verbatim wording',                           ok: 'Wording matches the required text',   bad: 'Wording does not match — see diff below' },
   { key: 'casingBoldOk',     title: '"GOVERNMENT WARNING" all caps and bold',           ok: 'Correctly styled',                    bad: 'Title is not ALL CAPS and/or not bold' },
-  { key: 'fontSizeOk',       title: 'Minimum type size for container',                  ok: 'Meets the minimum',                   bad: 'Appears below the minimum type size' },
+  // fontSizeOk only renders when actually computed (bbox + DPI both available).
+  { key: 'fontSizeOk',       title: 'Minimum type size for container',                  ok: 'Meets 27 CFR 16.22 minimum (measured from DPI)', bad: 'Below 27 CFR 16.22 minimum — see deviation' },
   { key: 'contrastOk',       title: 'Adequate contrast',                                ok: 'Legible against background',          bad: 'Contrast is too low for legibility' },
   { key: 'separateAndApart', title: '"Separate and apart" from other copy',             ok: 'Stands alone on the label',           bad: 'Interspersed with other label copy' },
 ];
 
-function CheckRow({ ok, title, label }: { ok: boolean; title: string; label: string }) {
-  const tone = ok ? 'match' : 'flag';
-  const Icon = ok ? IconCheck : IconFlag;
+type CheckTone = 'match' | 'flag' | 'advisory';
+
+function CheckRow({ tone, title, label }: { tone: CheckTone; title: string; label: string }) {
+  const Icon = tone === 'match' ? IconCheck : tone === 'advisory' ? IconWarn : IconFlag;
+  const pillText = tone === 'match' ? 'OK' : tone === 'advisory' ? 'Confirm manually' : 'Does not comply';
   return (
     <li className="gw-check">
       <span className={`gw-check__dot gw-check__dot--${tone}`} aria-hidden="true">
@@ -111,7 +114,7 @@ function CheckRow({ ok, title, label }: { ok: boolean; title: string; label: str
       <div className="gw-check__body">
         <div className="gw-check__title">
           {title}
-          <span className={`gw-pill gw-pill--${tone}`}>{ok ? 'OK' : 'Does not comply'}</span>
+          <span className={`gw-pill gw-pill--${tone}`}>{pillText}</span>
         </div>
         <div className="gw-check__label">{label}</div>
       </div>
@@ -152,7 +155,22 @@ export default function GovernmentWarningPanel({ gw, loading }: GovernmentWarnin
 
   const status = useMemo(() => {
     if (!gw) return null;
-    const failures = CHECKS.filter(c => gw[c.key] === false).length;
+    const advisoryTypes = new Set<string>();
+    for (const d of gw.deviations) {
+      if (/near_verbatim|please confirm manually/i.test(`${d.type} ${d.message}`)) {
+        advisoryTypes.add(d.type);
+      }
+    }
+    const isAdvisoryKey = (key: string): boolean => {
+      if (key === 'verbatimMatch') return advisoryTypes.has('near_verbatim');
+      return false;
+    };
+    // A check counts as a failure only when its value is literally false
+    // (not null/undefined). fontSizeOk is omitted when bbox/DPI inputs
+    // aren't available — that's "not checked," not "failed."
+    const failures = CHECKS.filter(c =>
+      gw[c.key] === false && !isAdvisoryKey(c.key as string),
+    ).length;
     return failures === 0 ? { tone: 'match' as const, failures } : { tone: 'flag' as const, failures };
   }, [gw]);
 
@@ -216,14 +234,34 @@ export default function GovernmentWarningPanel({ gw, loading }: GovernmentWarnin
       <div className="gw__body">
         <h4 className="gw__h4">Compliance checks</h4>
         <ul className="gw__checks" aria-label="Government Warning compliance checks">
-          {CHECKS.map(c => (
-            <CheckRow
-              key={c.key as string}
-              ok={gw[c.key] === true}
-              title={c.title}
-              label={gw[c.key] === true ? c.ok : c.bad}
-            />
-          ))}
+          {CHECKS.filter(c => {
+            // Skip fontSizeOk when it's null/undefined — those inputs
+            // weren't available (no DPI on the image, or extractor
+            // returned no bbox). The footer notes this.
+            if (c.key === 'fontSizeOk' && (gw[c.key] === null || gw[c.key] === undefined)) {
+              return false;
+            }
+            return true;
+          }).map(c => {
+            const ok = gw[c.key] === true;
+            // Near-verbatim is the only remaining advisory case — OCR-slip
+            // wording that's >=95% similarity to the canonical text.
+            const relatedDev = gw.deviations.find(d => {
+              if (c.key === 'verbatimMatch') return d.type === 'wording' || d.type === 'near_verbatim';
+              return false;
+            });
+            const advisory = !ok && relatedDev && /near_verbatim/i.test(relatedDev.type);
+            const tone: CheckTone = ok ? 'match' : advisory ? 'advisory' : 'flag';
+            const label = ok ? c.ok : advisory ? (relatedDev?.message || c.bad) : c.bad;
+            return (
+              <CheckRow
+                key={c.key as string}
+                tone={tone}
+                title={c.title}
+                label={label}
+              />
+            );
+          })}
         </ul>
 
         <div className="gw__diff-head">
@@ -269,24 +307,64 @@ export default function GovernmentWarningPanel({ gw, loading }: GovernmentWarnin
           </Alert>
         )}
 
-        {gw.deviations.length > 0 && (
-          <>
-            <h4 className="gw__h4">What an agent should action</h4>
-            <ul className="gw__deviations">
-              {gw.deviations.map((d, i) => (
-                <li key={i} className="gw__deviation">
-                  <span className="gw__deviation-type">{d.type}</span>
-                  <span>{d.message}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+        {gw.deviations.length > 0 && (() => {
+          // Near-verbatim OCR slip is advisory; everything else is a real
+          // deviation the agent should action.
+          const isAdvisory = (d: { type: string; message: string }) =>
+            /near_verbatim/i.test(d.type);
+          const substantive = gw.deviations.filter(d => !isAdvisory(d));
+          const advisory    = gw.deviations.filter(isAdvisory);
+          return (
+            <>
+              {substantive.length > 0 && (
+                <>
+                  <h4 className="gw__h4">What an agent should action</h4>
+                  <ul className="gw__deviations">
+                    {substantive.map((d, i) => (
+                      <li key={`s-${i}`} className="gw__deviation">
+                        <span className="gw__deviation-type">{d.type}</span>
+                        <span>{d.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {advisory.length > 0 && (
+                <>
+                  <h4 className="gw__h4">Confirm manually</h4>
+                  <ul className="gw__deviations gw__deviations--advisory">
+                    {advisory.map((d, i) => (
+                      <li key={`a-${i}`} className="gw__deviation gw__deviation--advisory">
+                        <span className="gw__deviation-type gw__deviation-type--advisory">{d.type}</span>
+                        <span>{d.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       <footer className="gw__foot">
-        Per <strong>27 CFR 16.21</strong> and <strong>16.22</strong>
-        {' '}— Health Warning Statement requirements for alcohol beverages.
+        <p style={{ margin: 0 }}>
+          Per <strong>27 CFR 16.21</strong> and <strong>16.22</strong>
+          {' '}— Health Warning Statement requirements for alcohol beverages.
+        </p>
+        {gw.fontSizeOk === null || gw.fontSizeOk === undefined ? (
+          <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--color-ink-muted)' }}>
+            <strong>Type size (27 CFR 16.22) not checked on this image</strong> —
+            requires DPI metadata + a clean warning bbox. TTB-scraped JPEGs carry
+            DPI; phone photos and stripped images do not. Agent confirms manually.
+          </p>
+        ) : (
+          <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--color-ink-muted)' }}>
+            <strong>Type size verified</strong> from the image's DPI metadata and the
+            warning text bounding box. This is an approximate measurement (±5–10%);
+            TTB inspectors verify with a ruler on a physical sample for borderline cases.
+          </p>
+        )}
       </footer>
     </section>
   );

@@ -39,12 +39,17 @@ class GovernmentWarningAnalysis(BaseModel):
     present: bool
     verbatimMatch: bool
     casingBoldOk: bool
-    fontSizeOk: bool
     contrastOk: bool
     separateAndApart: bool
     detectedText: str
     deviations: list[WarningDeviation] = Field(default_factory=list)
     regulation: Literal["27 CFR 16.21/16.22"] = WARNING_REGULATION  # type: ignore[assignment]
+    # 27 CFR 16.22 minimum type size. Computed deterministically from the
+    # extractor's warning bounding box + the image's DPI metadata, when
+    # both are available. None when the inputs are missing (phone photos
+    # without DPI, or extractor didn't return a bbox) — the agent
+    # confirms manually in that case.
+    fontSizeOk: Optional[bool] = None
 
 
 class ImageQuality(BaseModel):
@@ -53,10 +58,29 @@ class ImageQuality(BaseModel):
     note: Optional[str] = None
 
 
+class TimingInfo(BaseModel):
+    """Per-request timing breakdown, attached to every VerificationResult.
+
+    inference_mode is the extractor that did the read (claude-code, cloud,
+    modal, sft, mock); it lets the UI show whether the user is on the local
+    dev path or the deployed Modal+Qwen production path.
+
+    Times are wall-clock milliseconds. extractorMs is the bulk of the time
+    (model inference + network); rulesMs is the deterministic rules-engine
+    pass; totalMs covers the whole pipeline including image-quality
+    measurement and crop generation.
+    """
+    inferenceMode: str
+    extractorMs: int
+    rulesMs: int
+    totalMs: int
+
+
 class VerificationResult(BaseModel):
     fields: list[VerificationField]
     governmentWarning: GovernmentWarningAnalysis
     imageQuality: ImageQuality
+    timing: Optional[TimingInfo] = None
 
 
 class ApplicationData(BaseModel):
