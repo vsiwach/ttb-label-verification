@@ -178,6 +178,18 @@ IMAGE_RESIZE_FN = """\
 # tokens with comfortable headroom under max_length=4096 even for
 # tall multi-panel composites. v1 trained successfully at this cap.
 MAX_PIXELS_TRAIN = 1024 * 1024
+
+# Disable PIL's decompression-bomb DoS check entirely. TTB occasionally
+# carries ultra-high-DPI scans (200M+ pixels) which trip PIL's default
+# 178M-pixel hard limit. We resize down to MAX_PIXELS_TRAIN immediately
+# anyway, so the transient memory spike (~600MB for a 200M-pixel RGB
+# image) is fine on A100 80GB. Without this, even a single oversized
+# composite mid-training raises DecompressionBombError and kills the
+# run. The "DoS" framing is for adversarial inputs; our inputs are
+# from TTB.
+import PIL.Image, warnings
+PIL.Image.MAX_IMAGE_PIXELS = None
+warnings.filterwarnings('ignore', category=PIL.Image.DecompressionBombWarning)
 """
 
 
@@ -605,6 +617,12 @@ def _derive_beverage(row):
 # training, with a tighter max_pixels cap (eval is latency-sensitive
 # and the model can OCR labels at lower res once trained).
 MAX_PIXELS_EVAL = 640 * 640
+
+# Disable PIL's DoS check — same reason as training (TTB has
+# 200M+ pixel composites that trip the default 178M hard limit).
+import PIL.Image, warnings
+PIL.Image.MAX_IMAGE_PIXELS = None
+warnings.filterwarnings('ignore', category=PIL.Image.DecompressionBombWarning)
 """),
         md("## 5. Helper — generate from a PEFT-wrapped Qwen model"),
         code("""\
