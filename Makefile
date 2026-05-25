@@ -117,12 +117,25 @@ uat-pack:
 
 # Pull fresh COLAs directly from the TTB Public COLA Registry — full
 # Form 5100.31 data including the bottler line, plus the actual label
-# image with DPI metadata. ~1 request/sec polite rate; 50 COLAs ≈ 3 min.
+# image with DPI metadata. 0.5 req/sec polite rate; 50 COLAs ≈ 2 min.
 # Output: test/eval/data/ttb_live/{ttb_live.csv, images/<ttb_id>.jpg}
 # Idempotent: re-runs skip ttb_ids already in ttb_live.csv.
 TTB_COUNT ?= 50
+TTB_CATEGORY ?=
 scrape-ttb:
+ifeq ($(strip $(TTB_CATEGORY)),)
 	$(PY) test/eval/scrape_ttb_registry.py --count $(TTB_COUNT)
+else
+	$(PY) test/eval/scrape_ttb_registry.py --count $(TTB_COUNT) --category $(TTB_CATEGORY)
+endif
+
+# Stratified scrape: pull 20K total across spirits/wine/beer_malt at the
+# ratio used for the Qwen v2 fine-tune. Runs serially (one TTB session
+# at a time, polite); ~17 hrs end-to-end at 0.5 req/sec.
+scrape-ttb-stratified:
+	$(MAKE) scrape-ttb TTB_CATEGORY=spirits   TTB_COUNT=6000
+	$(MAKE) scrape-ttb TTB_CATEGORY=wine      TTB_COUNT=6000
+	$(MAKE) scrape-ttb TTB_CATEGORY=beer_malt TTB_COUNT=8000
 
 # Audit the engine against the scraped TTB-live tier (real Form 5100.31
 # data, including the bottler line). All scraped labels are TTB-approved,

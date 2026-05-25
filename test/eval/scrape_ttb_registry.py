@@ -60,7 +60,7 @@ HEADERS = {
         "(government-research; contact: vsiwach@gmail.com)"
     ),
 }
-POLITE_DELAY = 1.0  # seconds between requests
+POLITE_DELAY = 0.5  # seconds between requests
 
 # CSV schema — matches the columns we extract from the form view
 CSV_COLUMNS = [
@@ -118,54 +118,52 @@ def search_ttb_ids(
     date_from: date,
     date_to: date,
     max_pages: int = 20,
+    class_codes: list[str] | None = None,
 ) -> list[str]:
     """Search the registry by date range; return all TTB IDs found.
 
-    The search returns up to 50 per page; we follow the pager
-    (publicPageBasicCola.do?action=page&pn=N) until exhausted or
-    max_pages reached.
+    With class_codes set, uses the advanced-search endpoint to filter by
+    TTB class type (e.g. wine codes 80-89). Without it, uses the basic
+    endpoint (preserves original behavior for `make scrape-ttb`).
+
+    NOTE: TTB hard-caps every search query to 20 results — both endpoints.
+    The pn=N pager exists but the server ignores it and returns the same
+    first page. So the strategy that actually works is: walk many narrow
+    date windows. The caller (scrape loop) does this; this function just
+    runs one query and returns up to 20 ttbids.
     """
-    payload = {
-        "searchCriteria.dateCompletedFrom": date_from.strftime("%m/%d/%Y"),
-        "searchCriteria.dateCompletedTo":   date_to.strftime("%m/%d/%Y"),
-        "searchCriteria.productNameSearchType": "E",
-    }
-    print(f"[search] {date_from} → {date_to}", flush=True)
+    if class_codes:
+        # Advanced search with class-type filter (multi-value array param)
+        payload: list[tuple[str, str]] = [
+            ("searchCriteria.dateCompletedFrom", date_from.strftime("%m/%d/%Y")),
+            ("searchCriteria.dateCompletedTo",   date_to.strftime("%m/%d/%Y")),
+            ("searchCriteria.productNameSearchType", "E"),
+            ("searchCriteria.classTypeDesired", "code"),
+        ] + [("searchCriteria.classTypeCodeArrayByCode", c) for c in class_codes]
+        url = f"{BASE}/publicSearchColasAdvancedProcess.do?action=search"
+        print(f"[search] {date_from} → {date_to}  ({len(class_codes)} class codes)", flush=True)
+    else:
+        payload = list({
+            "searchCriteria.dateCompletedFrom": date_from.strftime("%m/%d/%Y"),
+            "searchCriteria.dateCompletedTo":   date_to.strftime("%m/%d/%Y"),
+            "searchCriteria.productNameSearchType": "E",
+        }.items())
+        url = f"{BASE}/publicSearchColasBasicProcess.do?action=search"
+        print(f"[search] {date_from} → {date_to}", flush=True)
+
     polite_sleep()
-    r = session.post(
-        f"{BASE}/publicSearchColasBasicProcess.do?action=search",
-        data=payload, timeout=20,
-    )
+    r = session.post(url, data=payload, timeout=20)
     r.raise_for_status()
     ids: list[str] = re.findall(r"ttbid=(\d+)", r.text)
-    print(f"[search] page 1: {len(ids)} ids", flush=True)
-
-    page = 2
-    while page <= max_pages:
-        polite_sleep()
-        r2 = session.get(
-            f"{BASE}/publicPageBasicCola.do?action=page&pn={page}",
-            timeout=20,
-        )
-        if r2.status_code != 200:
-            break
-        new = re.findall(r"ttbid=(\d+)", r2.text)
-        if not new:
-            break
-        # The pager echoes the current page; only count NEW ids
-        before = len(ids)
-        ids.extend(x for x in new if x not in ids)
-        if len(ids) == before:
-            break
-        print(f"[search] page {page}: +{len(ids) - before} ids (total {len(ids)})", flush=True)
-        page += 1
-    # Dedupe while preserving order
+    # Dedupe while preserving order — the result table renders each ttbid
+    # twice (link + display).
     seen: set[str] = set()
     out: list[str] = []
     for x in ids:
         if x not in seen:
             seen.add(x)
             out.append(x)
+    print(f"[search] {len(out)} unique ids", flush=True)
     return out
 
 
@@ -432,7 +430,13 @@ def append_csv(rows: list[dict]) -> None:
             w.writerow(r)
 
 
-def scrape(count: int, date_from: date, date_to: date) -> int:
+def scrape(
+    count: int,
+    date_from: date,
+    date_to: date,
+    class_codes: list[str] | None = None,
+    per_window: int = 5,
+) -> int:
     session = make_session()
     print(f"[init] session established", flush=True)
 
@@ -443,24 +447,28 @@ def scrape(count: int, date_from: date, date_to: date) -> int:
     # provides. Use 1-day windows so successive runs sample DIFFERENT
     # applicants — TTB tends to batch-approve from one brewery, so a
     # 7-day window often returns 20 from the same producer.
+    #
+    # per_window caps how many we pull from each day-search:
+    #   - default 5 (original behavior, keeps variety high when scraping
+    #     undifferentiated)
+    #   - 20 (the TTB cap) when stratifying by class — class filter
+    #     already enforces variety, so take everything the search gives.
     cursor_to = date_to
     cursor_from = cursor_to
     collected: list[str] = []
-    seen_bottlers: set[str] = set()  # rough variety check by first id-prefix
     while len(collected) < count and cursor_from >= date_from:
         try:
-            ids = search_ttb_ids(session, cursor_from, cursor_to)
+            ids = search_ttb_ids(session, cursor_from, cursor_to, class_codes=class_codes)
         except Exception as e:
             print(f"[search] failed: {e}", flush=True)
             break
-        # Take up to 5 per window to keep variety high
         added = 0
         for tid in ids:
             if tid in existing or tid in collected:
                 continue
             collected.append(tid)
             added += 1
-            if added >= 5 or len(collected) >= count:
+            if added >= per_window or len(collected) >= count:
                 break
         # Slide window backward by one day
         cursor_to = cursor_from - timedelta(days=1)
@@ -564,11 +572,18 @@ def main() -> int:
     p.add_argument("--count", type=int, default=50, help="Number of COLAs to scrape")
     p.add_argument(
         "--from", dest="date_from", default=None,
-        help="Earliest approval date to search (YYYY-MM-DD); default = 6 months ago",
+        help="Earliest approval date to search (YYYY-MM-DD); "
+             "default = 6 months ago (basic) or 5 years ago (stratified)",
     )
     p.add_argument(
         "--to", dest="date_to", default=None,
         help="Latest approval date (YYYY-MM-DD); default = today",
+    )
+    p.add_argument(
+        "--category", choices=["spirits", "wine", "beer_malt"], default=None,
+        help="Restrict search to one beverage category (uses TTB advanced "
+             "search with classTypeCodeArrayByCode filter). Without this "
+             "flag, scrapes any class type via basic search.",
     )
     args = p.parse_args()
 
@@ -576,12 +591,24 @@ def main() -> int:
     date_to = (
         date.fromisoformat(args.date_to) if args.date_to else today
     )
+    # Stratified runs need more date depth because each day-window yields
+    # ~20 results AT MOST (TTB caps per-query) and we may want thousands
+    # per category. 5 years × 365 days × 20/day ≈ 36K possible per category.
+    default_days = 1825 if args.category else 180
     date_from = (
         date.fromisoformat(args.date_from) if args.date_from
-        else date_to - timedelta(days=180)
+        else date_to - timedelta(days=default_days)
     )
 
-    n = scrape(args.count, date_from, date_to)
+    class_codes: list[str] | None = None
+    per_window = 5
+    if args.category:
+        from ttb_class_codes import CATEGORIES
+        class_codes = CATEGORIES[args.category]
+        per_window = 20  # take all 20 the TTB cap allows
+        print(f"[init] category={args.category}  ({len(class_codes)} class codes)", flush=True)
+
+    n = scrape(args.count, date_from, date_to, class_codes=class_codes, per_window=per_window)
     return 0 if n > 0 else 1
 
 
