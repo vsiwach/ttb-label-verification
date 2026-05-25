@@ -166,20 +166,15 @@ SYSTEM_PROMPT_V1 = (
 """
 
 IMAGE_RESIZE_FN = """\
-from PIL import Image
-
-def _resize_for_training(img, max_pixels=1500 * 1024):
-    \"\"\"Multi-panel composites need more pixels than v1's single panels.
-    1.5M caps visual-token count at ~1.5K, which is the A100 sweet spot.\"\"\"
-    w, h = img.size
-    if w * h > max_pixels:
-        scale = (max_pixels / (w * h)) ** 0.5
-        img = img.resize((max(int(w * scale), 28), max(int(h * scale), 28)), Image.LANCZOS)
-    w, h = img.size
-    w28, h28 = max((w // 28) * 28, 28), max((h // 28) * 28, 28)
-    if (w28, h28) != (w, h):
-        img = img.resize((w28, h28), Image.LANCZOS)
-    return img
+# Image preprocessing is delegated to qwen_vl_utils.process_vision_info,
+# which is the canonical Qwen2.5-VL pattern. It guarantees the chat
+# template's placeholder count and the processor's feature count match —
+# pre-resizing manually with PIL diverges from the processor's internal
+# resize and triggers `tokens != features` ValueErrors at training time.
+#
+# max_pixels caps composite size for memory; ~1.5M pixels ≈ 1900 visual
+# tokens, the A100 sweet spot. process_vision_info handles the resize.
+MAX_PIXELS_TRAIN = 1500 * 1024
 """
 
 
@@ -340,20 +335,26 @@ val_ds = Dataset.from_list([
 ])
 print(f'train_ds: {len(train_ds)}   val_ds: {len(val_ds)}')
 
+from qwen_vl_utils import process_vision_info
+
 def _collate(batch):
     assert len(batch) == 1, 'Qwen2.5-VL collator expects batch_size=1'
     ex = batch[0]
-    img = _resize_for_training(Image.open(ex['image_path']).convert('RGB'))
+    # Pass the image PATH (not a PIL.Image) so process_vision_info can
+    # load + resize it through the SAME smart_resize function the
+    # processor uses internally. This is what keeps placeholder count
+    # and feature count synchronized.
     msgs = [
         {'role': 'system',    'content': [{'type': 'text', 'text': SYSTEM_PROMPT}]},
         {'role': 'user',      'content': [
-            {'type': 'image', 'image': img},
+            {'type': 'image', 'image': ex['image_path'], 'max_pixels': MAX_PIXELS_TRAIN},
             {'type': 'text',  'text': f"Beverage type: {ex['beverage_type']}. Extract per the schema."},
         ]},
         {'role': 'assistant', 'content': [{'type': 'text', 'text': ex['target_json']}]},
     ]
     text = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
-    enc = tokenizer(text=[text], images=[img], padding=True, return_tensors='pt',
+    image_inputs, _video = process_vision_info(msgs)
+    enc = tokenizer(text=[text], images=image_inputs, padding=True, return_tensors='pt',
                     truncation=True, max_length=2048)
     labels = enc['input_ids'].clone()
     pad_id = tokenizer.tokenizer.pad_token_id
@@ -585,24 +586,16 @@ def _derive_beverage(row):
         code(SYSTEM_PROMPT_V2),
         code(SYSTEM_PROMPT_V1),
         code("""\
-from PIL import Image
-def _resize_for_eval(img, max_pixels=640 * 640):
-    \"\"\"Tighter cap than training — eval is latency-sensitive, model already trained.
-    640x640 = ~400 visual tokens, plenty for label OCR, ~3s/image on A100.\"\"\"
-    w, h = img.size
-    if w * h > max_pixels:
-        scale = (max_pixels / (w * h)) ** 0.5
-        img = img.resize((max(int(w * scale), 28), max(int(h * scale), 28)), Image.LANCZOS)
-    w, h = img.size
-    w28, h28 = max((w // 28) * 28, 28), max((h // 28) * 28, 28)
-    if (w28, h28) != (w, h):
-        img = img.resize((w28, h28), Image.LANCZOS)
-    return img
+# Eval uses the same qwen_vl_utils.process_vision_info pattern as
+# training, with a tighter max_pixels cap (eval is latency-sensitive
+# and the model can OCR labels at lower res once trained).
+MAX_PIXELS_EVAL = 640 * 640
 """),
         md("## 5. Helper — generate from a PEFT-wrapped Qwen model"),
         code("""\
 import torch, json, re, time
 from tqdm.auto import tqdm
+from qwen_vl_utils import process_vision_info
 
 def _parse_json(raw):
     s, e = raw.find('{'), raw.rfind('}')
@@ -615,26 +608,32 @@ def _parse_json(raw):
         except: return None
 
 def run_qwen_inference(model, processor, system_prompt, jsonl_out):
-    \"\"\"Run the Qwen+LoRA model over the holdout, write predictions JSONL.\"\"\"
+    \"\"\"Run the Qwen+LoRA model over the holdout, write predictions JSONL.
+
+    Uses qwen_vl_utils.process_vision_info to keep chat-template placeholder
+    count in sync with processor's feature count — manual PIL pre-resize
+    diverges from the processor's smart_resize and triggers tokens!=features
+    ValueError. The path-not-PIL.Image pattern is the canonical Qwen-VL one.
+    \"\"\"
     model.eval()
     results = []
     with open(jsonl_out, 'w') as f:
         for tid, row in tqdm(by_id.items()):
             img_path = IMAGE_DIR / f'{tid}.jpg'
-            try:
-                img = _resize_for_eval(Image.open(img_path).convert('RGB'))
-            except Exception as e:
-                print(f'skip {tid}: {e}'); continue
+            if not img_path.exists():
+                continue
             bev = _derive_beverage(row)
             msgs = [
                 {'role': 'system', 'content': [{'type': 'text', 'text': system_prompt}]},
                 {'role': 'user',   'content': [
-                    {'type': 'image', 'image': img},
+                    {'type': 'image', 'image': str(img_path), 'max_pixels': MAX_PIXELS_EVAL},
                     {'type': 'text',  'text': f'Beverage type: {bev}. Extract per the schema.'},
                 ]},
             ]
             text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-            inputs = processor(text=[text], images=[img], padding=True, return_tensors='pt').to(model.device)
+            image_inputs, _video = process_vision_info(msgs)
+            inputs = processor(text=[text], images=image_inputs, padding=True,
+                               return_tensors='pt').to(model.device)
             t0 = time.time()
             with torch.no_grad():
                 out = model.generate(
