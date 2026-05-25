@@ -439,6 +439,7 @@ trainer = SFTTrainer(
     data_collator=_collate,
     args=SFTConfig(
         per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,     # MUST match train — collator asserts batch=1
         gradient_accumulation_steps=4,
         warmup_ratio=0.03,
         num_train_epochs=1,
