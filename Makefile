@@ -105,6 +105,43 @@ modal-download-adapter-v2:
 	mkdir -p $(SFT_MODEL_DIR_V2)
 	$(VENV)/bin/modal volume get ttb-qwen-adapter-v2 /adapter $(SFT_MODEL_DIR_V2)/adapter
 
+# 4. Deploy v2 to its own Modal endpoint (separate from v1) so the
+#    head-to-head eval can hit them independently.
+modal-deploy-v2:
+	$(VENV)/bin/modal deploy backend/modal_deploy/serve_qwen_v2.py
+
+# ── Head-to-head eval on the held-out 2K ───────────────────────────────────
+# Three-step manual flow (each run swaps which extractor the backend uses):
+#
+#   1. Sample the holdout list (once, before any training):
+#        make holdout-split
+#
+#   2. For each model, start the backend with the right INFERENCE_MODE
+#      then run the eval. Examples:
+#        # Haiku (Anthropic cloud):
+#        INFERENCE_MODE=cloud make serve-api &  ; sleep 5
+#        make eval-holdout TAG=haiku
+#
+#        # Qwen v1 (existing Modal endpoint):
+#        INFERENCE_MODE=modal MODAL_ENDPOINT_URL=<v1-url> make serve-api &
+#        make eval-holdout TAG=qwen_v1
+#
+#        # Qwen v2 (new Modal endpoint, post-training):
+#        INFERENCE_MODE=modal MODAL_ENDPOINT_URL=<v2-url> make serve-api &
+#        make eval-holdout TAG=qwen_v2
+#
+#   3. Aggregate the three runs:
+#        make eval-compare
+holdout-split:
+	$(PY) test/eval/holdout_split.py
+
+TAG ?= haiku
+eval-holdout:
+	$(PY) test/eval/eval_holdout.py --report-tag $(TAG)
+
+eval-compare:
+	$(PY) test/eval/compare_holdout_models.py
+
 # Manual demo scripts — exercise every verdict bucket against a running backend.
 # Backend must already be running (make serve  OR  make serve-modal).
 
