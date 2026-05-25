@@ -386,11 +386,36 @@ print('\\n✅ SMOKE TEST PASSED — full training is safe to start.')
 """),
         md("""## 8. Full training run (1 epoch over 18K, BF16)
 
-~3-4 hr on A100, ~6-8 hr on T4. Saves checkpoints to Drive every 1000 steps; resume by
-re-running this cell if Colab disconnects (Trainer auto-resumes from latest checkpoint).
+| Hardware | Wall time | Fits Colab? |
+|---|---|---|
+| A100-80GB (Pro+) | ~12-14 hr | ✅ comfortable under 24 hr cap |
+| A100-40GB (Pro+) | ~17-20 hr | ⚠️  tight under 24 hr cap |
+| L4 (Pro) | ~25-30 hr | ❌ needs 2-3 resumes |
+| T4 (free) | ~50+ hr | ❌ impractical |
+
+**Session-disconnect insurance.** This cell:
+- Checkpoints to Drive every **500 steps** (~30 min on A100). Worst-case loss = 30 min of training.
+- Uses `resume_from_checkpoint=True` — if you re-run this cell after a Colab disconnect,
+  `Trainer` auto-resumes from the latest checkpoint in `MyDrive/ttb_sft/qwen2_5_vl_7b_v2/checkpoints/`.
+  Tracks: epoch, step, optimizer state, LR scheduler position, RNG state.
+- Keeps the last 3 checkpoints (older ones auto-deleted) so Drive doesn't bloat —
+  ~3 × 500 MB = 1.5 GB.
+- **For Pro+ background execution:** in the Colab menu, Runtime → Manage sessions →
+  enable "Background execution" so the tab can close without killing the run.
+
+If a Colab session dies and you re-run this cell, you'll see logs like
+`Continuing training from checkpoint, will skip to global_step N` — that's the resume.
 """),
         code("""\
 from trl import SFTTrainer, SFTConfig
+
+CKPT_DIR = WORK_DIR / 'checkpoints'
+has_ckpt = CKPT_DIR.exists() and any(CKPT_DIR.glob('checkpoint-*'))
+if has_ckpt:
+    latest = max(CKPT_DIR.glob('checkpoint-*'), key=lambda p: int(p.name.split('-')[-1]))
+    print(f'↻ Found prior checkpoint at {latest.name} — Trainer will resume from there.')
+else:
+    print('▶ No prior checkpoint — starting fresh.')
 
 trainer = SFTTrainer(
     model=model,
@@ -408,16 +433,16 @@ trainer = SFTTrainer(
         weight_decay=0.01,
         optim='adamw_8bit',
         logging_steps=20,
-        eval_strategy='steps', eval_steps=500,
-        save_strategy='steps', save_steps=1000, save_total_limit=3,
+        eval_strategy='steps', eval_steps=1000,
+        save_strategy='steps', save_steps=500, save_total_limit=3,
         seed=42,
-        output_dir=str(WORK_DIR / 'checkpoints'),
+        output_dir=str(CKPT_DIR),
         report_to='none',
         remove_unused_columns=False,
         dataset_kwargs={'skip_prepare_dataset': True},
     ),
 )
-trainer.train()
+trainer.train(resume_from_checkpoint=has_ckpt)
 """),
         md("## 9. Save adapter to Drive (v2 path — coexists with v1)"),
         code("""\
