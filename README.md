@@ -308,6 +308,32 @@ Frontend has ONE env var (in .env.local at repo root):
    Runbook: docs/DEPLOY_RUNBOOK.md
 ```
 
+### Cold-start behavior on Modal (Architecture C) — what Treasury sees
+
+Modal scales-to-zero after `container_idle_timeout` (default 120 s in
+our deploy). That gives you genuine per-request pricing — ~$0 sitting
+idle — but introduces a one-time latency on the first request after a
+quiet period.
+
+| Request | Wall time | What's happening |
+|---|---|---|
+| First request after 2+ min idle | **30-60 s** | Container spins up; Qwen 7B + v2.1 LoRA load into VRAM |
+| Subsequent requests in the warm window | **3-5 s** | Inference runs on already-loaded model |
+| After 2 min of no traffic | container scales to zero ($0) |
+
+**For Treasury demos, hit `/health` 60 seconds before sending the link**
+to pre-warm the container. The smoke test (`make smoke-deployed
+URL=…`) does exactly this and asserts the warm-path SLA of ≤30 s.
+
+Three knobs if cold-start UX matters more than cost:
+
+- `container_idle_timeout=600` — keeps container warm for 10 min after
+  last request. ~$0.07/hr extra.
+- `min_containers=1` — always-warm. ~$290/mo flat. Eliminates cold
+  start entirely.
+- Move to `Architecture B` (Cloud / Haiku) — no GPU spin-up; trade-off
+  is data passes through Anthropic's infra (no longer privacy-first).
+
 ### Architecture D — agency on-prem (FedRAMP / Azure Government)
 
 ```
@@ -328,6 +354,23 @@ Frontend has ONE env var (in .env.local at repo root):
    Same code as Architecture C; deployment topology changes only.
    See: PRD §7.2 (production architecture).
 ```
+
+### Deploy commands
+
+```bash
+# === Privacy-first path (Architecture C; Qwen on Modal) ===
+npm run build                                                          # produces dist/
+make modal-upload-adapter SFT_MODEL_DIR=backend/models/qwen2_5_vl_7b_v2 # ship the LoRA
+make modal-deploy-mvp                                                  # prints the HTTPS URL
+make smoke-deployed URL=<that-url>                                     # gate before sharing
+
+# === Public path (Architecture B; Haiku via Vercel) ===
+# See docs/DEPLOY_VERCEL.md (built post-MVP)
+```
+
+Both deployments serve identical UX. The smoke test (`make
+smoke-deployed`) hits every endpoint Treasury will touch and exits
+non-zero if anything is broken — run it after every deploy.
 
 ---
 

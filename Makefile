@@ -73,6 +73,21 @@ serve-modal:
 modal-deploy:
 	$(VENV)/bin/modal deploy backend/modal_deploy/serve_qwen.py
 
+# Deploy the WHOLE MVP (frontend + backend + Qwen) as a single Modal
+# container. Privacy-first: no external API calls. Prereqs:
+#   1. npm run build (produces dist/)
+#   2. make modal-upload-adapter SFT_MODEL_DIR=backend/models/qwen2_5_vl_7b_v2
+#      (or whatever path holds your v2.1 adapter)
+#
+# Prints an HTTPS URL; that's the link to send Treasury. Smoke-test it
+# with: make smoke-deployed URL=<that-url>
+modal-deploy-mvp: dist
+	$(VENV)/bin/modal deploy backend/modal_deploy/serve_full_app.py
+
+# Convenience: build the frontend first if dist/ is missing.
+dist:
+	npm run build
+
 # Upload the trained LoRA adapter to Modal's persistent volume (idempotent).
 SFT_MODEL_DIR ?= backend/models/qwen2_5_vl_7b
 modal-upload-adapter:
