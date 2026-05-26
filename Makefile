@@ -207,6 +207,18 @@ scrape-ttb-stratified:
 audit-ttb-live:
 	$(PY) test/eval/audit_ttb_live.py
 
+# End-to-end smoke test against a DEPLOYED backend. Hits every endpoint
+# Treasury will hit (health, samples, verify, verify-batch) plus a
+# 5-call warm-path stability check. Exits non-zero if anything's broken.
+#
+# Usage:
+#   make smoke-deployed URL=http://localhost:8000
+#   make smoke-deployed URL=https://your-app.modal.run
+#   make smoke-deployed URL=https://ttb-verify.vercel.app
+URL ?= http://localhost:8000
+smoke-deployed:
+	TTB_API_BASE=$(URL) $(PY) test/smoke/smoke_deployed.py
+
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type d -name .pytest_cache -exec rm -rf {} +
