@@ -887,11 +887,33 @@ def _norm(s):
     s = re.sub(r'\\s+', ' ', s)
     return s
 
+def _clean_bottler_expected(raw):
+    \"\"\"Mirror test/eval/build_qwen_jsonl.py::_clean_bottler_for_training so
+    eval expected bottler matches the format v2.1 was trained to output:
+    'Company, City, ST'. Without this, v2.1 outputs the cleaned format
+    correctly but substring-matching against the RAW form text (which
+    has the full street + ZIP) fails and bottler scores ~0% — that was
+    a real eval bug in the v2.1 head-to-head until we re-scored.\"\"\"
+    s = re.sub(r'\\s*\\([^)]*\\)\\s*$', '', (raw or '').strip())
+    s = re.sub(r'\\s+', ' ', s).strip()
+    m = re.search(r'\\s+([A-Za-z][A-Za-z\\s.\\-\\']+?)\\s+([A-Za-z]{2})\\s+\\d{4,5}\\b', s, re.IGNORECASE)
+    if not m: return s
+    city = re.sub(r'^.*?\\b(?:ST|AVE|RD|DR|BLVD|HWY|PKWY|CT|LN|WAY|CIR|PL|SQ|TER|TRL|XING|ALY|PATH|PLZ|LOOP|RUN|ROW|ROUTE|RTE|PIKE|STREET|AVENUE|ROAD|DRIVE|BOULEVARD|HIGHWAY|PARKWAY|COURT|LANE|CIRCLE|PLACE|SQUARE|TERRACE|TRAIL|CROSSING|ALLEY|PLAZA)\\.?\\s+', '', m.group(1).strip(), flags=re.IGNORECASE).strip().rstrip(',')
+    state = m.group(2).upper()
+    before = s[:m.start()].strip().rstrip(',')
+    company_m = re.match(r'^(.+?)\\s+\\d', before)
+    company = (company_m.group(1) if company_m else before).strip().rstrip(',')
+    return f'{company}, {city}, {state}'
+
 def expected_fields(row):
     out = {
         'Brand name':           _norm(row.get('brand_name')),
         'Class & type':         _norm(row.get('class_type_description')),
-        'Bottler name/address': _norm(row.get('name_address_applicant')),
+        # Apply the same bottler cleaning v2.1 was trained against —
+        # otherwise the substring scorer fails on perfectly correct v2.1
+        # outputs because the raw form text has street+ZIP that v2.1
+        # was explicitly taught to NOT emit.
+        'Bottler name/address': _norm(_clean_bottler_expected(row.get('name_address_applicant'))),
     }
     origin = (row.get('origin_code') or '').upper()
     if origin and origin not in _US:
@@ -899,9 +921,7 @@ def expected_fields(row):
     return {k: v for k, v in out.items() if v}
 
 def score_field(extracted, expected):
-    \"\"\"Tolerant match: exact OR extracted is substring of expected (handles
-    cases where the form's bottler line includes extra info like ZIP that the
-    label artwork doesn't.\"\"\"
+    \"\"\"Tolerant match: exact OR substring either direction.\"\"\"
     if not extracted: return False
     if extracted == expected: return True
     if expected and extracted in expected: return True
