@@ -88,6 +88,21 @@ modal-deploy-mvp: dist
 dist:
 	npm run build
 
+# Deploy the WHOLE MVP to Vercel (public Haiku path). Frontend served
+# by CDN; FastAPI backend runs as @vercel/python serverless function;
+# extraction goes to Anthropic Haiku. Requires `vercel login` + env
+# vars set in Vercel dashboard (see docs/DEPLOY_VERCEL.md).
+#
+# Prints an HTTPS URL; that's the link to send Treasury. Smoke-test it
+# with: make smoke-deployed URL=<that-url>
+vercel-deploy:
+	npm i -g vercel 2>/dev/null || true
+	vercel --prod
+
+vercel-preview:
+	npm i -g vercel 2>/dev/null || true
+	vercel
+
 # Upload the trained LoRA adapter to Modal's persistent volume (idempotent).
 SFT_MODEL_DIR ?= backend/models/qwen2_5_vl_7b
 modal-upload-adapter:

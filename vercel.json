@@ -1,7 +1,20 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "functions": {
+    "api/index.py": {
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/:path*",   "destination": "/api/index.py" },
+    { "source": "/health",       "destination": "/api/index.py" },
+    { "source": "/crops/:path*", "destination": "/api/index.py" },
+    { "source": "/((?!api|health|crops|assets).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
