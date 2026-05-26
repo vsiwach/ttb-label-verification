@@ -589,15 +589,21 @@ for p in (V1_ADAPTER, V2_ADAPTER, HOLDOUT_TXT, CSV_PATH):
 """),
         md("""## 2. Load holdout list + TTB form ground truth
 
-**SAMPLE_SIZE = 200** runs a quick preview (~15 min total). To run the
-full held-out 2K (~1 hr total after staging), set `SAMPLE_SIZE = None`.
-The subsample is seeded so the same 200 rows are picked across v1, v2,
-and Haiku runs — fair comparison."""),
+**SAMPLE_SIZE = None** runs the full 2K holdout (~5-8 hr total). Set to
+e.g. `200` for a quick preview (~15-30 min). The subsample is seeded so
+the same rows are picked across v1, v2, and Haiku runs — fair
+comparison.
+
+**Resumable**: each inference cell appends to its own JSONL and skips
+ttb_ids already present, so a Colab disconnect mid-run doesn't waste
+any work — just re-run the failed cell and it picks up where it left
+off. Combined with Colab Pro+ Background Execution, you can kick this
+off and walk away."""),
         code("""\
 import csv, json, random
 
 # ── Toggle: how many holdout rows to evaluate this run ───────────────
-SAMPLE_SIZE = 200    # set to None for the full 2K
+SAMPLE_SIZE = None   # None = full 2K. Set to 200 for a quick preview.
 SAMPLE_SEED = 1      # fixed so v1, v2, Haiku score the same rows
 # ────────────────────────────────────────────────────────────────────
 
@@ -718,15 +724,37 @@ def _parse_json(raw):
 def run_qwen_inference(model, processor, system_prompt, jsonl_out):
     \"\"\"Run the Qwen+LoRA model over the holdout, write predictions JSONL.
 
+    Resumable: reads existing entries from jsonl_out and skips those
+    ttb_ids, then APPENDS new ones. Survive a Colab disconnect mid-run
+    by just re-executing the cell — no work is lost. f.flush() after
+    each write so the file is up-to-date even if the kernel dies.
+
     Uses qwen_vl_utils.process_vision_info to keep chat-template placeholder
     count in sync with processor's feature count — manual PIL pre-resize
     diverges from the processor's smart_resize and triggers tokens!=features
     ValueError. The path-not-PIL.Image pattern is the canonical Qwen-VL one.
     \"\"\"
+    # ── Resume: read existing predictions, skip those ttb_ids ──────
+    done: set[str] = set()
+    if Path(jsonl_out).exists():
+        with open(jsonl_out) as f:
+            for line in f:
+                try:
+                    done.add(json.loads(line)['ttb_id'])
+                except Exception:
+                    pass
+        if done:
+            print(f'  ↻ Resume: {len(done)} predictions already on disk, will skip those')
+
+    todo = [(tid, row) for tid, row in by_id.items() if tid not in done]
+    if not todo:
+        print(f'  ✓ All {len(by_id)} predictions already done — nothing to do')
+        return [json.loads(l) for l in open(jsonl_out)]
+
+    print(f'  → {len(todo)} predictions to run ({len(done)} already done)')
     model.eval()
-    results = []
-    with open(jsonl_out, 'w') as f:
-        for tid, row in tqdm(by_id.items()):
+    with open(jsonl_out, 'a') as f:
+        for tid, row in tqdm(todo):
             img_path = IMAGE_DIR / f'{tid}.jpg'
             if not img_path.exists():
                 continue
@@ -744,9 +772,6 @@ def run_qwen_inference(model, processor, system_prompt, jsonl_out):
                                return_tensors='pt').to(model.device)
             t0 = time.time()
             with torch.no_grad():
-                # max_new_tokens=256 is plenty: typical target JSON is ~80-120
-                # tokens (fields + 1 country if non-US). 384 was wasteful and
-                # ~40% slower per inference for no quality gain.
                 out = model.generate(
                     **inputs, max_new_tokens=256, do_sample=False,
                     temperature=None, top_p=None,
@@ -764,9 +789,10 @@ def run_qwen_inference(model, processor, system_prompt, jsonl_out):
                 'parsed':    parsed,
                 'latency_s': round(elapsed, 2),
             }
-            results.append(rec)
             f.write(json.dumps(rec) + '\\n')
-    return results
+            f.flush()    # immediate persistence — survive kernel kill
+    # Reload everything we've written (includes prior resume + this run)
+    return [json.loads(l) for l in open(jsonl_out)]
 """),
         md("## 6. Load v1 + run inference"),
         code("""\
@@ -827,9 +853,21 @@ else:
     MODEL = 'claude-haiku-4-5'
     HAIKU_PROMPT = SYSTEM_PROMPT_V1  # Haiku is the v1 schema baseline
 
+    HAIKU_OUT = EVAL_OUT / 'haiku_predictions.jsonl'
+
+    # Resume — same pattern as the Qwen path
+    done: set[str] = set()
+    if HAIKU_OUT.exists():
+        for line in open(HAIKU_OUT):
+            try:    done.add(json.loads(line)['ttb_id'])
+            except: pass
+        if done:
+            print(f'  ↻ Resume: {len(done)} Haiku predictions on disk, skipping those')
+
+    todo = [(tid, row) for tid, row in by_id.items() if tid not in done]
     haiku_results = []
-    with open(EVAL_OUT / 'haiku_predictions.jsonl', 'w') as f:
-        for tid, row in tqdm(by_id.items()):
+    with open(HAIKU_OUT, 'a') as f:
+        for tid, row in tqdm(todo):
             img_path = IMAGE_DIR / f'{tid}.jpg'
             try:
                 img_b64 = base64.b64encode(open(img_path, 'rb').read()).decode('ascii')
@@ -863,9 +901,10 @@ else:
                 'parsed':    parsed,
                 'latency_s': round(elapsed, 2),
             }
-            haiku_results.append(rec)
             f.write(json.dumps(rec) + '\\n')
-    print(f'haiku: {len(haiku_results)} predictions written to {EVAL_OUT / "haiku_predictions.jsonl"}')
+            f.flush()
+    haiku_results = [json.loads(l) for l in open(HAIKU_OUT)]
+    print(f'haiku: {len(haiku_results)} predictions written to {HAIKU_OUT}')
 """),
         md("## 9. Score each model against TTB form ground truth"),
         code("""\
