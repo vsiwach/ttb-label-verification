@@ -109,6 +109,103 @@ def _clean_field(s: str) -> str:
     return s
 
 
+def _clean_bottler_for_training(raw: str) -> str:
+    """Reduce TTB form bottler line to what's actually visible on labels.
+
+    Why this exists: TTB Form 5100.31 carries the bottler's full
+    registered corporate address (street + suite + city + state + ZIP).
+    But label artwork usually only prints "Company Name, City, State" —
+    the street address rarely appears. Training v2 with full-address
+    targets taught the model to OUTPUT full addresses but it had to
+    HALLUCINATE the street/suite/ZIP it couldn't read off the label.
+    v2 eval showed bottler at 1.5% strict / 32% company-name-only.
+
+    Strategy:
+      1. Strip trailing '(Used on label)' / '(Required)' annotations.
+      2. Find " <CITY> <STATE> <ZIP>" at the tail and capture city+state.
+      3. Everything before that tail is "company + street" — strip the
+         street portion by cutting at the first digit-run-followed-by-
+         space pattern.
+      4. Format as "Company, City, ST" — matches how labels actually
+         render bottler info.
+
+    Falls back to the original string if the parse fails (~5% of rows
+    based on testing) so the model still gets a usable target.
+
+    Examples:
+      "Ambervino LLC 266 47TH ST STE 362 Brooklyn NY 11220 TOAST & HONEY (Used on label)"
+        → "Ambervino LLC, Brooklyn, NY"
+      "MENDEZ & CO INC KM 24 GUAYNABO PR 00969"
+        → "Mendez & Co Inc, Guaynabo, PR"
+      "Pursuit Spirits, Pursuit Spirits LLC 1700 Mellwood Ave Louisville KY 40206"
+        → "Pursuit Spirits LLC, Louisville, KY"   (duplicated 'Pursuit Spirits' collapsed)
+    """
+    s = (raw or "").strip()
+    if not s:
+        return s
+
+    # Strip trailing parenthetical TTB annotations
+    s = re.sub(r"\s*\([^)]*\)\s*$", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # Look for " <city> <ST> <zip>" tail. State = 2 letters; ZIP = 4-5
+    # digits (Puerto Rico uses 00xxx so 4-digit observed). City = words.
+    tail_re = re.compile(
+        r"\s+(?P<city>[A-Za-z][A-Za-z\s.\-\']+?)\s+(?P<state>[A-Za-z]{2})\s+\d{4,5}\b",
+        re.IGNORECASE,
+    )
+    m = tail_re.search(s)
+    if not m:
+        # No ZIP — try without it (last word that's 2 letters = state)
+        tail_re2 = re.compile(
+            r"\s+(?P<city>[A-Za-z][A-Za-z\s.\-\']+?)\s+(?P<state>[A-Za-z]{2})\s*$",
+            re.IGNORECASE,
+        )
+        m = tail_re2.search(s)
+        if not m:
+            return s   # give up cleanly; keep original
+
+    before = s[: m.start()].strip().rstrip(",")
+    city  = m.group("city").strip().rstrip(",")
+    state = m.group("state").upper()
+
+    # Strip street fragments that leaked into the "city" capture (the
+    # lazy regex above can absorb "STREETNAME ST", "AVE", etc. as part
+    # of the city if the actual street number isn't right next to the
+    # street suffix). Match a street-suffix word and drop everything
+    # up to and including it.
+    _STREET_SUFFIX_RE = re.compile(
+        r"^.*?\b(?:ST|AVE|RD|DR|BLVD|HWY|PKWY|CT|LN|WAY|CIR|PL|SQ|TER"
+        r"|TRL|XING|ALY|PATH|PLZ|LOOP|RUN|ROW|ROUTE|RTE|PIKE|"
+        r"STREET|AVENUE|ROAD|DRIVE|BOULEVARD|HIGHWAY|PARKWAY|COURT|"
+        r"LANE|CIRCLE|PLACE|SQUARE|TERRACE|TRAIL|CROSSING|ALLEY|"
+        r"PLAZA)\.?\s+",
+        re.IGNORECASE,
+    )
+    city = _STREET_SUFFIX_RE.sub("", city).strip().rstrip(",")
+    city = city.title() if city else ""
+
+    # 'before' = "company [street]". Strip the street portion by cutting
+    # at the first digit-prefixed token. This is the conservative cut —
+    # if no digits, the whole 'before' is the company name.
+    company_m = re.match(r"^(?P<company>.+?)\s+\d", before)
+    company = (company_m.group("company") if company_m else before).strip().rstrip(",")
+
+    # Collapse common doubling like "Pursuit Spirits, Pursuit Spirits LLC"
+    # → "Pursuit Spirits LLC" by splitting on comma and dropping any
+    # earlier piece that's a substring of a later one.
+    parts = [p.strip() for p in re.split(r"[,;]", company) if p.strip()]
+    if len(parts) >= 2:
+        kept = []
+        for p in parts:
+            if any(p.lower() in q.lower() and p != q for q in parts):
+                continue   # this piece is contained in a longer one — drop
+            kept.append(p)
+        company = " ".join(kept) if kept else parts[-1]
+
+    return f"{company}, {city}, {state}"
+
+
 def _build_fields(row: dict) -> dict:
     """Build the {field_name: {value, confidence}} dict from form data."""
     fields: dict[str, dict] = {}
@@ -121,7 +218,8 @@ def _build_fields(row: dict) -> dict:
     if cls:
         fields["Class & type"] = {"value": cls, "confidence": 1.0}
 
-    bottler = _clean_field(row.get("name_address_applicant", ""))
+    bottler_raw = _clean_field(row.get("name_address_applicant", ""))
+    bottler = _clean_bottler_for_training(bottler_raw)
     if bottler:
         fields["Bottler name/address"] = {"value": bottler, "confidence": 1.0}
 

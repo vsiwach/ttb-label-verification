@@ -411,14 +411,20 @@ SFTTrainer(
 ).train()
 print('\\n✅ SMOKE TEST PASSED — full training is safe to start.')
 """),
-        md("""## 8. Full training run (1 epoch over 18K, BF16)
+        md("""## 8. Full training run (2 epochs, BF16)
 
-| Hardware | Wall time | Fits Colab? |
+⚠️ **Before running this cell for v2.1:** if you previously ran v2 to
+completion, the trainer will try to resume from
+`MyDrive/ttb_sft/qwen2_5_vl_7b_v2/checkpoints/checkpoint-2242/` and
+ignore your new 2-epoch config. **Delete that checkpoints folder first**
+(Drive web UI → right-click → Remove) so this run starts fresh.
+
+| Hardware | Wall time (2 epochs) | Fits Colab? |
 |---|---|---|
-| A100-80GB (Pro+) | ~12-14 hr | ✅ comfortable under 24 hr cap |
-| A100-40GB (Pro+) | ~17-20 hr | ⚠️  tight under 24 hr cap |
-| L4 (Pro) | ~25-30 hr | ❌ needs 2-3 resumes |
-| T4 (free) | ~50+ hr | ❌ impractical |
+| A100-80GB (Pro+) | ~5-7 hr | ✅ comfortable under 24 hr cap |
+| A100-40GB (Pro+) | ~8-10 hr | ✅ fits under 24 hr cap |
+| L4 (Pro) | ~12-15 hr | ⚠️ tight |
+| T4 (free) | impractical | ❌ |
 
 **Session-disconnect insurance.** This cell:
 - Checkpoints to Drive every **500 steps** (~30 min on A100). Worst-case loss = 30 min of training.
@@ -454,7 +460,12 @@ trainer = SFTTrainer(
         per_device_eval_batch_size=1,     # MUST match train — collator asserts batch=1
         gradient_accumulation_steps=4,
         warmup_ratio=0.03,
-        num_train_epochs=1,
+        # v2 (1 epoch) underfit — final loss ~5.85, bottler at 32%
+        # company-name-only. v2.1 doubles to 2 epochs over the same 9K
+        # examples with cleaner bottler targets (company + city + state
+        # only, no fabricated street addresses). ~5-6 hr wall time on
+        # A100-80GB, well under Pro+ 24h cap.
+        num_train_epochs=2,
         learning_rate=1e-4,
         bf16=True, fp16=False,
         lr_scheduler_type='cosine',
