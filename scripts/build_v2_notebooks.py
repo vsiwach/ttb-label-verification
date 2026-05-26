@@ -197,28 +197,42 @@ warnings.filterwarnings('ignore', category=PIL.Image.DecompressionBombWarning)
 
 def build_training_notebook() -> None:
     cells = [
-        md("""# Fine-tune **Qwen2.5-VL-7B v2** on the TTB-live stratified 18K (Colab + Drive)
+        md("""# Fine-tune **Qwen2.5-VL-7B v2.1** on the TTB-live stratified corpus (Colab + Drive)
 
-LoRA fine-tune mirroring `notebooks/sft_qwen2_5_vl.ipynb` (v1), with these changes:
+## v2.1 — what changed from v2
 
-- **Training data: 18K TTB-live composites** (vs v1's 1377 COLA Cloud singles) — sourced
-  by `test/eval/scrape_ttb_registry.py` on the Mac, lives at `MyDrive/ttb-scrape/images/`.
-- **Stratified by beverage**: ~6K spirits / 6K wine / 8K beer-malt (TTB classTypeCode buckets).
-- **Targets are fields-only** (Brand name, Class & type, Bottler name/address, Country of origin)
-  sourced verbatim from TTB Form 5100.31. Alcohol content / Net contents / Government warning
-  are NOT carried on the form; teaching them from model output would just bake in the
-  upstream model's mistakes.
-- **2K held-out test set** at `MyDrive/ttb-scrape/holdout_ttbids.txt` — the trainer never sees
-  it; the comparison notebook scores v1, v2, and Haiku against it.
-- **Adapter saves to `MyDrive/ttb_sft/qwen2_5_vl_7b_v2/`** so v1 and v2 coexist for the head-to-head.
-- **1 epoch** (vs v1's 2): 18K × 1 ≈ 6× more unique signal than v1's 1377 × 2;
-  ~3-4 hr on A100, ~6-8 hr on T4 with reduced batch.
+| Aspect | v2 (yesterday) | **v2.1 (this run)** |
+|---|---|---|
+| Bottler training targets | Full TTB form text: `"Ambervino LLC 266 47TH ST STE 362 Brooklyn NY 11220 ..."` | **Cleaned**: `"Ambervino LLC, Brooklyn, NY"` — only what's visible on labels |
+| Epochs | 1 | **3** |
+| Total training samples seen | ~9K | **~27K** (3× passes) |
+| Wall time on A100-80GB | ~3 hr | **~8-9 hr** |
+| Expected micro field accuracy | 60% (achieved) | 75-85% (projected) |
+| Expected bottler accuracy | 1.5% strict, 32% company-only (achieved) | 60-80% (projected) |
+
+Other config unchanged from v2: LoRA rank 16 / alpha 32 / dropout 0.05, BF16, AdamW-8bit,
+cosine LR=1e-4, MAX_PIXELS=1M, max_length=4096, save_steps=500, eval_steps=1000.
+
+## Why v2.1 will outperform v2
+
+v2 hit a fundamental ceiling on bottler (1.5% strict accuracy) because we trained it
+to output the FULL registered address from TTB Form 5100.31 — but most label artwork
+only shows "Company, City, State". The model learned to fill the field but had to
+HALLUCINATE the missing street/suite/ZIP. v2.1's cleaned targets match what's actually
+on the label, eliminating that hallucination pressure.
+
+3 epochs is the right call for this dataset size: v2 plateaued at loss 5.85 after
+1 epoch, suggesting underfit. With cleaner targets + 3× the optimizer steps, expect
+final loss in the 2-3 range.
 
 ## How to run
-1. `Runtime → Change runtime type → GPU` (A100 preferred; T4 works with smaller `MAX_PIXELS`)
-2. `Runtime → Run all` — installs deps, restarts kernel
-3. Wait for "session crashed" banner, then `Runtime → Run all` AGAIN
-4. Training proceeds end-to-end; adapter saves to Drive automatically
+1. `Runtime → Change runtime type → A100 GPU`
+2. `Runtime → Disconnect and delete runtime` (fresh kernel)
+3. `Runtime → Run all` — installs deps, kernel auto-restarts
+4. Wait for "session crashed" banner, then `Runtime → Run all` AGAIN
+5. Training runs unattended ~8-9 hr; adapter saves to
+   `MyDrive/ttb_sft/qwen2_5_vl_7b_v2/adapter/` (overwrites v2 — old v2's eval
+   numbers are preserved in `MyDrive/ttb_sft/eval/v1_vs_v2_comparison.md`)
 """),
         md("## 0. Install dependencies"),
         code(INSTALL_CELL),
@@ -461,11 +475,13 @@ trainer = SFTTrainer(
         gradient_accumulation_steps=4,
         warmup_ratio=0.03,
         # v2 (1 epoch) underfit — final loss ~5.85, bottler at 32%
-        # company-name-only. v2.1 doubles to 2 epochs over the same 9K
+        # company-name-only. v2.1 trains for 3 epochs over the same 9K
         # examples with cleaner bottler targets (company + city + state
-        # only, no fabricated street addresses). ~5-6 hr wall time on
-        # A100-80GB, well under Pro+ 24h cap.
-        num_train_epochs=2,
+        # only, no fabricated street addresses). ~8-9 hr wall time on
+        # A100-80GB, well under Pro+ 24h cap. 3 epochs picked over 2 so
+        # the cosine LR schedule has more steps in its higher-LR region
+        # before decaying to zero.
+        num_train_epochs=3,
         learning_rate=1e-4,
         bf16=True, fp16=False,
         lr_scheduler_type='cosine',
