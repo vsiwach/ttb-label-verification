@@ -283,19 +283,46 @@ _TTB_LIVE:  list[Sample] = _load_ttb_live()
 ALL_SAMPLES: list[Sample] = _SYNTHETIC + _REAL + _TTB_LIVE
 
 
+# Cap how many TTB-live samples the picker exposes. The full scrape is
+# ~11K rows which made the dropdown unusable (browser hung on render).
+# 80 stratified samples is plenty for demo and per-beverage spot-checks;
+# the full corpus remains accessible by ID via get_sample_by_id() so
+# eval scripts and direct links keep working.
+_PICKER_TTB_LIVE_CAP = 80
+
+
 def list_samples() -> list[Sample]:
     """Return the samples shown in the agent UI picker.
 
     Two tiers:
-      - real    : COLA Cloud free-sample labels (67 cleanrows; bottler empty)
-      - ttb-live: scraped directly from TTB Public Registry (full form data)
+      - real    : COLA Cloud free-sample labels (~67 rows; bottler empty)
+      - ttb-live: scraped directly from TTB Public Registry (full form data),
+                  capped to _PICKER_TTB_LIVE_CAP and stratified across
+                  spirits/wine/beer-malt so each beverage is represented.
 
     Synthetic fixtures stay on disk for the CI gate but aren't in the picker.
     """
-    return [
-        s for s in (_TTB_LIVE + _REAL)
-        if s.image_path.exists()
-    ]
+    real_with_image = [s for s in _REAL if s.image_path.exists()]
+    ttb_with_image  = [s for s in _TTB_LIVE if s.image_path.exists()]
+
+    # Stratify the TTB-live cap across beverage types so the picker isn't
+    # 80% wine (which is what naïve sampling would give since wine is
+    # the majority of approved COLAs).
+    by_bev: dict[str, list[Sample]] = {}
+    for s in ttb_with_image:
+        bev = getattr(s, "beverage_type", None) or "wine"
+        by_bev.setdefault(bev, []).append(s)
+    per_bucket = max(1, _PICKER_TTB_LIVE_CAP // max(len(by_bev), 1))
+
+    picked: list[Sample] = []
+    for bev, bucket in sorted(by_bev.items()):
+        picked.extend(bucket[:per_bucket])
+    # If rounding left room, top up from whichever bucket has more
+    if len(picked) < _PICKER_TTB_LIVE_CAP:
+        leftover = [s for bucket in by_bev.values() for s in bucket[per_bucket:]]
+        picked.extend(leftover[: _PICKER_TTB_LIVE_CAP - len(picked)])
+
+    return picked + real_with_image
 
 
 def get_sample_by_id(sample_id: str) -> Sample | None:
