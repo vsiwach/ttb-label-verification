@@ -560,9 +560,19 @@ EVAL_OUT.mkdir(parents=True, exist_ok=True)
 for p in (V1_ADAPTER, V2_ADAPTER, HOLDOUT_TXT, CSV_PATH):
     print(f'  {"✓" if p.exists() else "✗"} {p}')
 """),
-        md("## 2. Load holdout list + TTB form ground truth"),
+        md("""## 2. Load holdout list + TTB form ground truth
+
+**SAMPLE_SIZE = 200** runs a quick preview (~15 min total). To run the
+full held-out 2K (~1 hr total after staging), set `SAMPLE_SIZE = None`.
+The subsample is seeded so the same 200 rows are picked across v1, v2,
+and Haiku runs — fair comparison."""),
         code("""\
-import csv, json
+import csv, json, random
+
+# ── Toggle: how many holdout rows to evaluate this run ───────────────
+SAMPLE_SIZE = 200    # set to None for the full 2K
+SAMPLE_SEED = 1      # fixed so v1, v2, Haiku score the same rows
+# ────────────────────────────────────────────────────────────────────
 
 holdout_ids = {line.strip() for line in HOLDOUT_TXT.read_text().splitlines() if line.strip()}
 print(f'holdout: {len(holdout_ids)} ttb_ids')
@@ -591,9 +601,47 @@ by_id = {r['ttb_id']: r for r in all_rows if r['ttb_id'] in holdout_ids}
 by_id = {tid: r for tid, r in by_id.items() if (IMAGE_DIR / f'{tid}.jpg').exists()}
 print(f'eval set (with image present): {len(by_id)}')
 
-# Subsample if you want a quick smoke run — comment out for full 2K
-# import random; random.seed(1); by_id = dict(random.sample(list(by_id.items()), 200))
-# print(f'subsampled: {len(by_id)}')
+# Subsample for a fast preview
+if SAMPLE_SIZE is not None and len(by_id) > SAMPLE_SIZE:
+    random.seed(SAMPLE_SEED)
+    keys = random.sample(list(by_id.keys()), SAMPLE_SIZE)
+    by_id = {k: by_id[k] for k in keys}
+    print(f'subsampled to {len(by_id)} (seed={SAMPLE_SEED}) — set SAMPLE_SIZE=None for full 2K')
+"""),
+        md("""## 2.5. Pre-stage holdout images to Colab local SSD
+
+**Critical for eval speed.** Reading images via Drive FUSE is 5-30 sec
+per image (network round-trip to Google's servers). Reading from
+`/content/` is microseconds. Without this step, full-2K eval would take
+4-7 hr just on I/O; 200-row preview would take ~30 min instead of ~15.
+
+After this cell runs, `IMAGE_DIR` is rebound to the local path, and all
+downstream inference cells use the cached copies."""),
+        code("""\
+import shutil
+from tqdm.auto import tqdm
+
+LOCAL_IMG = Path('/content/holdout_images')
+LOCAL_IMG.mkdir(exist_ok=True)
+
+copied = skipped = missing = 0
+for tid in tqdm(by_id, desc='staging holdout to local SSD'):
+    src = IMAGE_DIR / f'{tid}.jpg'
+    dst = LOCAL_IMG / f'{tid}.jpg'
+    if dst.exists():
+        skipped += 1
+    elif src.exists():
+        shutil.copy(src, dst)
+        copied += 1
+    else:
+        missing += 1
+
+print(f'\\ncopied {copied}, already-cached {skipped}, missing {missing}')
+print(f'local staging total size: {sum(p.stat().st_size for p in LOCAL_IMG.glob("*.jpg"))/1e6:.0f} MB')
+
+# Rebind IMAGE_DIR — downstream inference cells read from local now
+IMAGE_DIR = LOCAL_IMG
+print(f'\\n✓ IMAGE_DIR now points to local: {IMAGE_DIR}')
 """),
         md("## 3. Beverage type derivation (mirrors backend's groupFor())"),
         code("""\
@@ -669,8 +717,11 @@ def run_qwen_inference(model, processor, system_prompt, jsonl_out):
                                return_tensors='pt').to(model.device)
             t0 = time.time()
             with torch.no_grad():
+                # max_new_tokens=256 is plenty: typical target JSON is ~80-120
+                # tokens (fields + 1 country if non-US). 384 was wasteful and
+                # ~40% slower per inference for no quality gain.
                 out = model.generate(
-                    **inputs, max_new_tokens=384, do_sample=False,
+                    **inputs, max_new_tokens=256, do_sample=False,
                     temperature=None, top_p=None,
                     pad_token_id=processor.tokenizer.eos_token_id,
                 )
