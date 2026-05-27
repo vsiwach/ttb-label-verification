@@ -49,6 +49,16 @@ export default function ResultPage() {
   useEffect(() => {
     if (!applicationData) return;
     if (startedRef.current) return;
+    // Skip the verify call entirely when the store already carries a
+    // finished result — this happens when /batch opens a per-item view:
+    // the batch endpoint produced the VerificationResult upstream and
+    // BatchPage.openItem hands it through. Re-firing /api/verify in
+    // that case would hit a 422 because the batch's UploadedImage
+    // carries blob=null (only a data URL for thumbnail rendering).
+    if (status === 'done' && result.fields.length > 0) {
+      startedRef.current = true;
+      return;
+    }
     startedRef.current = true;
     verifyStore.setState({
       status: 'streaming',
@@ -75,6 +85,7 @@ export default function ResultPage() {
         result: { ...s.result, timing: full.timing ?? null },
       })))
       .catch((err) => verifyStore.setState({ status: 'error', error: err instanceof Error ? err : new Error(String(err)) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applicationData, image]);
 
   useEffect(() => {

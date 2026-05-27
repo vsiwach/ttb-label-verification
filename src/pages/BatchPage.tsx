@@ -216,9 +216,23 @@ export default function BatchPage() {
       shared
       ?? appDataByFile.current.get(item.fileName)
       ?? emptyAppData();
+    // The batch already produced a full VerificationResult for this item;
+    // hand it straight to /result so it renders immediately without firing
+    // a second verify call. The previous version reset everything and
+    // let /result re-verify, which failed with 422 because the batch's
+    // UploadedImage carries blob=null (it never owned the Blob, only a
+    // data URL for thumbnail rendering).
     verifyStore.setState({
       image,
       applicationData: perItemAppData,
+      status: 'done',
+      result: {
+        fields: item.result.fields,
+        governmentWarning: item.result.governmentWarning,
+        imageQuality: item.result.imageQuality,
+        timing: item.result.timing ?? null,
+      },
+      error: null,
     });
     navigate('/result');
   }
