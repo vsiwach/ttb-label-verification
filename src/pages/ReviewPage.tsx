@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ApplicationData, VerificationField, VerificationResult } from '../api/types';
-import { SAMPLE_APPLICATIONS as SAVED_APPLICATIONS } from '../api/sampleApplications';
 import { useVerifyStore } from '../store/verifyStore';
 import Alert from '../components/Alert';
 import Button from '../components/Button';
@@ -28,11 +27,26 @@ function isTypingTarget(t: EventTarget | null): boolean {
   return false;
 }
 
-function guessAppData(item: { fileName?: string }): ApplicationData {
-  const f = (item.fileName || '').toLowerCase();
-  if (f.includes('stone'))     return SAVED_APPLICATIONS[1];
-  if (f.includes('northwind')) return SAVED_APPLICATIONS[2];
-  return SAVED_APPLICATIONS[0];
+/** Empty ApplicationData for batch items without a known declared source.
+ *  Replaces the old guessAppData() synthetic placeholder. */
+function emptyAppData(): ApplicationData {
+  return {
+    colaNumber: '',
+    brandName: '',
+    classType: '',
+    alcoholContent: '',
+    netContents: '',
+    bottlerNameAddress: '',
+    beverageType: 'spirits',
+  };
+}
+
+/** Per-item application data from the batch picker; empty if the user
+ *  dropped their own file (no picker entry). */
+function appDataFor(item: { fileName?: string }, session: { appDataByFile?: Record<string, ApplicationData> } | null | undefined): ApplicationData {
+  const fn = item.fileName || '';
+  if (session?.appDataByFile && fn in session.appDataByFile) return session.appDataByFile[fn];
+  return emptyAppData();
 }
 
 export default function ReviewPage() {
@@ -103,14 +117,14 @@ export default function ReviewPage() {
     const freeText = opts.freeText || '';
     const log = buildDraft({
       mode,
-      app: session.shared ?? guessAppData(item),
+      app: session.shared ?? appDataFor(item, session),
       result: liveResult,
       selectedReasons: reasons,
       freeText,
       imageQuality: liveResult.imageQuality,
     });
     const entry: DecisionEntry = {
-      brand: session.shared?.brandName ?? guessAppData(item).brandName,
+      brand: session.shared?.brandName ?? appDataFor(item, session).brandName,
       colaNumber: session.shared?.colaNumber,
       decision: mode,
       reasons: reasons.map(r => r.text),
@@ -190,7 +204,7 @@ export default function ReviewPage() {
     flag:   liveResult.fields.filter(f => f.status === 'flag').length,
   };
   const hasLikely = liveResult.fields.some(f => f.status === 'likely');
-  const brandTitle = session.shared?.brandName || guessAppData(item).brandName;
+  const brandTitle = session.shared?.brandName || appDataFor(item, session).brandName;
 
   return (
     <div className="container">
@@ -248,7 +262,10 @@ export default function ReviewPage() {
         <aside aria-label="Label image">
           <div className="card card--flush" style={{ overflow: 'hidden' }}>
             <img
-              src={item.thumbnailUrl}
+              // Prefer the per-file data URL the picker captured (the actual
+              // label the agent picked). Fall back to whatever the backend
+              // returned in thumbnailUrl. Either way, no broken image icon.
+              src={session.imageDataUrlByFile?.[item.fileName] || item.thumbnailUrl || ''}
               alt={`Label preview — ${item.fileName}`}
               style={{ display: 'block', width: '100%', height: 'auto', maxHeight: 420, objectFit: 'contain', background: '#f5f5f5' }}
             />

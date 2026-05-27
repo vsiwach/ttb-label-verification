@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { ApplicationData, BatchItemResult, VerificationField } from '../api/types';
 import { verifyBatch } from '../api/client';
-import { SAMPLE_APPLICATIONS as SAVED_APPLICATIONS } from '../api/sampleApplications';
 import { fetchSamples, fetchSampleImage, type SampleSummary } from '../api/samples';
 import { verifyStore, type UploadedImage } from '../store/verifyStore';
 import Alert from '../components/Alert';
@@ -49,11 +48,32 @@ function groupCounts(items: BatchItemResult[]): Record<GroupKey, number> {
 
 type QueuedFile = File;
 
-function guessAppDataFor(item: BatchItemResult): ApplicationData {
-  const f = (item.fileName || '').toLowerCase();
-  if (f.includes('stone'))     return SAVED_APPLICATIONS[1];
-  if (f.includes('northwind')) return SAVED_APPLICATIONS[2];
-  return SAVED_APPLICATIONS[0];
+/** Empty ApplicationData for batch items that were dropped (not picked from
+ *  samples) — the engine still extracts every field, declared-side is just
+ *  blank so the UI shows "not declared on application" rather than
+ *  comparing against synthetic placeholder data. */
+function emptyAppData(): ApplicationData {
+  return {
+    colaNumber: '',
+    brandName: '',
+    classType: '',
+    alcoholContent: '',
+    netContents: '',
+    bottlerNameAddress: '',
+    beverageType: 'spirits',
+  };
+}
+
+/** Convert a Blob to a data: URL so the result page can render it without
+ *  needing a network round-trip (the original sample images come from the
+ *  /api/samples endpoint; user-uploaded files don't have an endpoint to fetch). */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,7 +89,17 @@ export default function BatchPage() {
   // agent sees every item and isn't tempted to skip a bucket.
   const [autoPassOpen, setAutoPassOpen] = useState(true);
 
-  function handleFiles(list: File[]) {
+  // Per-file maps for samples added via the picker:
+  //   - appDataByFile: the REAL TTB application data (replaces the old
+  //     guessAppDataFor synthetic placeholder logic)
+  //   - imageDataUrlByFile: the actual label image so /result can render it
+  //     instead of a broken image
+  // Refs (not state) because the picker writes them imperatively and we don't
+  // want re-renders on every map update — the consumers read on click.
+  const appDataByFile      = useRef<Map<string, ApplicationData>>(new Map());
+  const imageDataUrlByFile = useRef<Map<string, string>>(new Map());
+
+  function handleFiles(list: File[], opts?: { appData?: Record<string, ApplicationData>; dataUrls?: Record<string, string> }) {
     // De-dupe by name+size so the picker doesn't enqueue the same sample twice
     // if the user clicks "Add" repeatedly. Files from the dropzone are unique
     // by construction (filesystem path); from the picker we keyed on sample id.
@@ -82,8 +112,18 @@ export default function BatchPage() {
       }
       return next;
     });
+    if (opts?.appData) {
+      for (const [k, v] of Object.entries(opts.appData)) appDataByFile.current.set(k, v);
+    }
+    if (opts?.dataUrls) {
+      for (const [k, v] of Object.entries(opts.dataUrls)) imageDataUrlByFile.current.set(k, v);
+    }
   }
-  function clearFiles() { setFiles([]); setItems([]); setPhase('upload'); setError(null); }
+  function clearFiles() {
+    setFiles([]); setItems([]); setPhase('upload'); setError(null);
+    appDataByFile.current.clear();
+    imageDataUrlByFile.current.clear();
+  }
 
   async function startProcessing() {
     if (files.length === 0) return;
@@ -104,24 +144,49 @@ export default function BatchPage() {
 
   function openItem(item: BatchItemResult) {
     verifyStore.reset();
+    // Use the picker-supplied image data URL if available; otherwise fall
+    // back to the (often empty) thumbnailUrl the backend returned. No
+    // synthetic placeholders.
+    const dataUrl = imageDataUrlByFile.current.get(item.fileName) || item.thumbnailUrl || '';
     const image: UploadedImage = {
       blob: null,
-      dataUrl: item.thumbnailUrl,
+      dataUrl,
       fileName: item.fileName,
       width: 0, height: 0,
       originalWidth: 0, originalHeight: 0,
       originalSize: 0, optimizedSize: 0,
     };
+    // Per-item REAL application data from the picker. If the user dropped
+    // their own file (no picker entry), use empty ApplicationData — the
+    // engine will then surface "not declared on application" notes per
+    // field, which is honest, instead of comparing the label to some
+    // synthetic placeholder.
+    const perItemAppData =
+      shared
+      ?? appDataByFile.current.get(item.fileName)
+      ?? emptyAppData();
     verifyStore.setState({
       image,
-      applicationData: shared ?? guessAppDataFor(item),
+      applicationData: perItemAppData,
     });
     navigate('/result');
   }
 
   function startReview() {
     const queue = items.filter(it => it.group !== 'auto-pass');
-    verifyStore.setState({ reviewSession: { queue, shared, startedAt: Date.now() } });
+    // Snapshot the per-file maps into plain objects so the review session
+    // survives across route navigations (refs reset with the page).
+    const appDataByFileSnapshot: Record<string, ApplicationData> = {};
+    const imageDataUrlByFileSnapshot: Record<string, string> = {};
+    appDataByFile.current.forEach((v, k) => { appDataByFileSnapshot[k] = v; });
+    imageDataUrlByFile.current.forEach((v, k) => { imageDataUrlByFileSnapshot[k] = v; });
+    verifyStore.setState({
+      reviewSession: {
+        queue, shared, startedAt: Date.now(),
+        appDataByFile: appDataByFileSnapshot,
+        imageDataUrlByFile: imageDataUrlByFileSnapshot,
+      },
+    });
     navigate('/review');
   }
 
@@ -183,7 +248,7 @@ interface UploadPanelProps {
   files: QueuedFile[];
   shared: ApplicationData | null;
   setShared: (a: ApplicationData | null) => void;
-  onFiles: (files: File[]) => void;
+  onFiles: (files: File[], opts?: { appData?: Record<string, ApplicationData>; dataUrls?: Record<string, string> }) => void;
   onClear: () => void;
   onStart: () => void;
 }
@@ -208,29 +273,6 @@ function UploadPanel({ files, shared, setShared, onFiles, onClear, onStart }: Up
         buttonLabel="Choose files…"
         icon={IconFolder}
       />
-
-      <div style={{ marginTop: 24 }}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 'var(--fs-18)' }}>Optional: attach a shared application</h3>
-        <p style={{ margin: '0 0 12px', color: 'var(--color-ink-muted)', fontSize: 14 }}>
-          When all images belong to the same COLA submission. Otherwise leave it
-          blank — every label is still audited for image-only checks (Government
-          Warning, image quality).
-        </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          {SAVED_APPLICATIONS.map(s => (
-            <button
-              key={s.colaNumber}
-              type="button"
-              className={`btn ${shared?.colaNumber === s.colaNumber ? 'btn--primary' : 'btn--secondary'}`}
-              style={{ minHeight: 36, padding: '0 12px', fontSize: 14 }}
-              onClick={() => setShared(shared?.colaNumber === s.colaNumber ? null : s)}
-            >
-              {shared?.colaNumber === s.colaNumber ? '✓ ' : ''}{s.brandName}
-            </button>
-          ))}
-          {shared && <button type="button" className="btn btn--ghost" onClick={() => setShared(null)}>Clear</button>}
-        </div>
-      </div>
 
       <hr className="divider" style={{ marginTop: 32 }} />
 
@@ -488,7 +530,7 @@ function ItemRow({ item, onOpen }: { item: BatchItemResult; onOpen: (item: Batch
 // (downloaded as Blobs from /api/samples/{id}/image).
 // ─────────────────────────────────────────────────────────────────────────────
 interface SamplePickerForBatchProps {
-  onFiles: (files: File[]) => void;
+  onFiles: (files: File[], opts?: { appData?: Record<string, ApplicationData>; dataUrls?: Record<string, string> }) => void;
 }
 
 function SamplePickerForBatch({ onFiles }: SamplePickerForBatchProps) {
@@ -533,14 +575,21 @@ function SamplePickerForBatch({ onFiles }: SamplePickerForBatchProps) {
     setLoading(true);
     try {
       const picks = samples.filter(s => selected.has(s.id));
-      // Download each sample image as a Blob, wrap as a File the batch can ingest
+      const appData: Record<string, ApplicationData> = {};
+      const dataUrls: Record<string, string> = {};
+      // Download each sample image as a Blob, wrap as a File the batch can
+      // ingest, and remember the real per-sample TTB application data + a
+      // data URL of the image so the downstream result/review pages have
+      // both. NO synthetic placeholder data.
       const files = await Promise.all(picks.map(async s => {
         const blob = await fetchSampleImage(s);
         const ext  = blob.type.includes('jpeg') ? 'jpg' : (blob.type.includes('webp') ? 'webp' : 'png');
         const name = `${s.id}.${ext}`;
+        appData[name] = s.applicationData;
+        dataUrls[name] = await blobToDataUrl(blob);
         return new File([blob], name, { type: blob.type || 'image/jpeg' });
       }));
-      onFiles(files);
+      onFiles(files, { appData, dataUrls });
       setSelected(new Set());
     } catch (e: any) {
       setError(String(e?.message || e));

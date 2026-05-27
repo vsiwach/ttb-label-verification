@@ -26,6 +26,13 @@ export interface ReviewSession {
   queue: BatchItemResult[];
   shared: ApplicationData | null;
   startedAt: number;
+  /** Per-item real application data, keyed by item.fileName. Populated by
+   *  the batch sample picker so the result/review pages see the actual TTB
+   *  Form 5100.31 fields, NOT synthetic placeholder data. */
+  appDataByFile?: Record<string, ApplicationData>;
+  /** Per-item image data URL, keyed by item.fileName. So the result page
+   *  shows the actual label the agent picked. */
+  imageDataUrlByFile?: Record<string, string>;
 }
 
 export interface StreamingResult {
