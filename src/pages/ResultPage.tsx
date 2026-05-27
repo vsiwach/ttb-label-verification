@@ -265,15 +265,44 @@ function LabelImagePanel({ image, imageQuality, isDone }: {
   imageQuality: ImageQuality | null;
   isDone: boolean;
 }) {
+  const [zoomed, setZoomed] = useState(false);
+  // Esc closes the lightbox so an agent who clicked into it can dismiss
+  // without reaching for the mouse — speeds up the "open, eyeball the
+  // side-panel text, decide" flow on labels with tiny imported-by /
+  // country-of-origin text.
+  useEffect(() => {
+    if (!zoomed) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoomed(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoomed]);
+
   return (
     <div>
       <div className="card card--flush" style={{ overflow: 'hidden' }}>
         {image ? (
-          <img
-            src={image.dataUrl}
-            alt={`Uploaded label — ${image.fileName}`}
-            style={{ display: 'block', width: '100%', height: 'auto', maxHeight: 520, objectFit: 'contain', background: '#f5f5f5' }}
-          />
+          <button
+            type="button"
+            onClick={() => setZoomed(true)}
+            aria-label="Open larger view of the label image"
+            style={{
+              display: 'block', width: '100%',
+              padding: 0, border: 0, background: '#f5f5f5',
+              cursor: 'zoom-in', position: 'relative',
+            }}
+          >
+            <img
+              src={image.dataUrl}
+              alt={`Uploaded label — ${image.fileName} (click to enlarge)`}
+              style={{ display: 'block', width: '100%', height: 'auto', maxHeight: 520, objectFit: 'contain', background: '#f5f5f5' }}
+            />
+            <span style={{
+              position: 'absolute', bottom: 8, right: 8,
+              padding: '4px 8px', fontSize: 11, fontWeight: 600,
+              background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4,
+              pointerEvents: 'none',
+            }}>Click to enlarge</span>
+          </button>
         ) : (
           <div style={{
             aspectRatio: '3/4',
@@ -294,6 +323,42 @@ function LabelImagePanel({ image, imageQuality, isDone }: {
         )}
       </div>
       <ImageQualityMeter quality={imageQuality} loading={!imageQuality && !isDone} />
+      {zoomed && image && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Enlarged label image"
+          onClick={() => setZoomed(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 24, cursor: 'zoom-out',
+          }}
+        >
+          <img
+            src={image.dataUrl}
+            alt={image.fileName}
+            style={{
+              maxWidth: '95vw', maxHeight: '95vh',
+              objectFit: 'contain',
+              background: '#fff', borderRadius: 4,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+            }}
+          />
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setZoomed(false); }}
+            aria-label="Close enlarged view"
+            style={{
+              position: 'absolute', top: 16, right: 16,
+              padding: '8px 16px', fontSize: 14, fontWeight: 600,
+              background: '#fff', color: 'var(--color-ink)',
+              border: 'none', borderRadius: 4, cursor: 'pointer',
+            }}
+          >Close ✕</button>
+        </div>
+      )}
     </div>
   );
 }
