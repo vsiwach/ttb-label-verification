@@ -103,12 +103,20 @@ export async function verifyBatch(
   files: Array<File | Blob | { name?: string }>,
   applicationData?: ApplicationData,
   onItem?: OnBatchItemCallback,
+  /** Optional per-file application data (real TTB Form 5100.31 data from
+   *  the sample picker). Keyed by File.name. When present, the backend uses
+   *  this per item instead of falling back to a single shared or empty
+   *  placeholder — preserves real declared values per sample. */
+  applicationsByFilename?: Record<string, ApplicationData>,
 ): Promise<BatchItemResult[]> {
   if (!API_BASE_URL) throw new Error('Backend URL not configured (VITE_API_BASE_URL).');
 
   const body = new FormData();
   for (const f of files) if (f instanceof Blob) body.append('images', f);
   if (applicationData) body.append('applicationData', JSON.stringify(applicationData));
+  if (applicationsByFilename && Object.keys(applicationsByFilename).length > 0) {
+    body.append('applicationsByFilename', JSON.stringify(applicationsByFilename));
+  }
 
   const res = await fetch(`${API_BASE_URL}/verify-batch`, { method: 'POST', body });
   if (!res.ok) {

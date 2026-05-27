@@ -130,10 +130,17 @@ export default function BatchPage() {
     setPhase('processing');
     setItems([]);
     setError(null);
+    // Snapshot the picker's per-file application data into a plain object
+    // so the backend uses real TTB form data per item (not synthetic).
+    const perFile: Record<string, ApplicationData> = {};
+    appDataByFile.current.forEach((v, k) => { perFile[k] = v; });
     try {
-      await verifyBatch(files, shared ?? undefined, (item) => {
-        setItems(prev => [...prev, item]);
-      });
+      await verifyBatch(
+        files,
+        shared ?? undefined,
+        (item) => { setItems(prev => [...prev, item]); },
+        Object.keys(perFile).length > 0 ? perFile : undefined,
+      );
       setPhase('done');
     } catch (e: any) {
       setError(String(e?.message || e || 'unknown error'));

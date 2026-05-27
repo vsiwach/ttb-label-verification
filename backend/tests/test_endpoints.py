@@ -119,7 +119,74 @@ def test_verify_scenario_C_northwind_warning_violation(client):
 
 
 # ── batch ─────────────────────────────────────────────────────────────────────
-def test_verify_batch_groups(client):
+def test_verify_batch_no_application_data_uses_empty_default(client):
+    """Batch with no application data: backend uses empty ApplicationData
+    (was synthetic OLD TOM / STONE'S THROW round-robin pre-fix). Engine
+    treats every field as 'not declared on application' — items group
+    uniformly because input is identical and nothing fails comparison."""
+    files = [
+        ("images", ("a.png", _png_bytes(), "image/png")),
+        ("images", ("b.png", _png_bytes(), "image/png")),
+        ("images", ("c.png", _png_bytes(), "image/png")),
+    ]
+    r = client.post("/api/verify-batch", files=files)
+    assert r.status_code == 200
+    arr = r.json()
+    assert len(arr) == 3
+    for item in arr:
+        assert "id" in item and "fileName" in item and "thumbnailUrl" in item
+    # No synthetic per-file fallback means we don't get the old A/B/C mix.
+    groups = {item["group"] for item in arr}
+    assert len(groups) == 1, f"expected uniform bucket with no app data, got {groups}"
+
+
+def test_verify_batch_with_applications_by_filename(client):
+    """Batch with applicationsByFilename: backend uses real per-file data."""
+    files = [
+        ("images", ("a.png", _png_bytes(), "image/png")),
+        ("images", ("b.png", _png_bytes(), "image/png")),
+    ]
+    per_file = {
+        "a.png": {
+            "colaNumber": "TEST-A", "brandName": "ACME RYE",
+            "classType": "Straight Rye Whiskey",
+            "alcoholContent": "45% Alc./Vol.", "netContents": "750 mL",
+            "bottlerNameAddress": "Acme Distilling, Portland, OR",
+            "beverageType": "spirits",
+        },
+        "b.png": {
+            "colaNumber": "TEST-B", "brandName": "BARREL HOUSE",
+            "classType": "Bourbon Whiskey",
+            "alcoholContent": "50% Alc./Vol.", "netContents": "750 mL",
+            "bottlerNameAddress": "Barrel House Co., Louisville, KY",
+            "beverageType": "spirits",
+        },
+    }
+    r = client.post(
+        "/api/verify-batch",
+        files=files,
+        data={"applicationsByFilename": json.dumps(per_file)},
+    )
+    assert r.status_code == 200
+    arr = r.json()
+    assert len(arr) == 2
+    for item in arr:
+        fields = item["result"]["fields"]
+        for f in fields:
+            if f["fieldName"] == "Brand name":
+                expected = per_file[item["fileName"]]["brandName"]
+                assert f["declaredValue"] == expected, (
+                    f"per-file declared brand {f['declaredValue']!r} "
+                    f"doesn't match input {expected!r}"
+                )
+
+
+def test_verify_batch_groups_OLD_DISABLED(client):
+    """Disabled — old test asserted scenario-A/B/C bucket mix that depended
+    on the synthetic application_for_filename round-robin (now removed).
+    Replaced by the two tests above. Kept here as a tombstone reference."""
+    return
+    # The original test follows for git-archaeology only:
     files = [
         ("images", ("a.png", _png_bytes(), "image/png")),
         ("images", ("b.png", _png_bytes(), "image/png")),

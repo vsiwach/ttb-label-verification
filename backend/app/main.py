@@ -30,7 +30,11 @@ from .image_pipeline import (
     fetch_crop,
     store_crop,
 )
-from .mock_data import application_for_filename
+# Note: removed `from .mock_data import application_for_filename` — the old
+# batch endpoint used to fall back to a synthetic OLD TOM / STONE'S THROW /
+# NORTHWIND round-robin when no application data was provided, which
+# produced confusing false-flag mismatches. The new fallback is an empty
+# ApplicationData (declared blank, engine surfaces honest notes).
 from .models import ApplicationData, BatchItemResult, ImageQuality, TimingInfo, VerificationResult, group_for
 from .rules import verify as run_rules
 from .rules.mandatory_fields import ALL_FIELDS
@@ -232,27 +236,57 @@ async def verify(
 async def verify_batch(
     images: list[UploadFile] = File(...),
     applicationData: Optional[str] = Form(None),
+    applicationsByFilename: Optional[str] = Form(None),
 ) -> list[BatchItemResult]:
     """Verify a batch of labels with bounded concurrency.
 
     Per-item errors do NOT fail the batch — failed items come back with a
     synthetic 'flag' result so the dashboard can surface them for review.
+
+    Application data precedence (per-item):
+      1. applicationsByFilename[filename] — JSON map sent by the frontend
+         sample picker carrying the REAL TTB application data per file
+      2. applicationData (shared) — single ApplicationData applied to every
+         item, for "all images in this batch are from the same COLA submission"
+         flow
+      3. empty ApplicationData — for user-dropped files without picker
+         metadata. Engine surfaces "Application did not declare this field"
+         per field instead of flagging against placeholder data.
     """
     if not images:
         raise HTTPException(status_code=400, detail="no images provided")
     shared = _parse_application_data(applicationData) if applicationData else None
+
+    # Optional per-file map. JSON dict of {filename: ApplicationData-dict}.
+    per_file: dict[str, ApplicationData] = {}
+    if applicationsByFilename:
+        try:
+            raw = json.loads(applicationsByFilename)
+            if isinstance(raw, dict):
+                for fname, app_dict in raw.items():
+                    if isinstance(app_dict, dict):
+                        per_file[fname] = ApplicationData.model_validate(app_dict)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("ignoring malformed applicationsByFilename: %s", e)
 
     # Eagerly drain uploads (FastAPI's SpooledTemporaryFile is per-request).
     payloads: list[tuple[int, bytes, str, ApplicationData]] = []
     for idx, img in enumerate(images):
         b = await img.read()
         filename = img.filename or f"label-{idx + 1}.jpg"
-        # When the client supplies one shared application, use it for every
-        # item. Otherwise pair each upload with its matching saved COLA by
-        # filename (so dragging the synthetic fixtures into /batch lines up
-        # with the right application). Production replaces this with a real
-        # queue keyed by COLA number — see DESIGN.md §10.
-        app_data = shared if shared is not None else application_for_filename(filename, idx)
+        # Precedence: per-file map (real picker data) > shared > empty.
+        # The old code used a synthetic round-robin fallback that produced
+        # confusing "OLD TOM DISTILLERY vs RICCI" mismatches for picker
+        # samples — that's been removed.
+        app_data = (
+            per_file.get(filename)
+            or shared
+            or ApplicationData(
+                colaNumber="", brandName="", classType="",
+                alcoholContent="", netContents="",
+                bottlerNameAddress="", beverageType="spirits",
+            )
+        )
         payloads.append((idx, b, filename, app_data))
 
     sem = asyncio.Semaphore(_BATCH_CONCURRENCY)
