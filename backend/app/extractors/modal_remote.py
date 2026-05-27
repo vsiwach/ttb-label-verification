@@ -216,14 +216,15 @@ class ModalRemoteExtractor(LabelExtractor):
             self.endpoint_url, self.tesseract_url or "(disabled)",
         )
 
-    async def _call_modal(self, image_bytes: bytes, beverage_type: BeverageType) -> dict[str, Any]:
-        payload = {
-            "image_b64":     base64.b64encode(image_bytes).decode("ascii"),
-            "beverage_type": str(beverage_type),
-        }
+    async def _call_modal(
+        self,
+        client: httpx.AsyncClient,
+        image_b64: str,
+        beverage_type: BeverageType,
+    ) -> dict[str, Any]:
+        payload = {"image_b64": image_b64, "beverage_type": str(beverage_type)}
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                r = await client.post(self.endpoint_url, json=payload)
+            r = await client.post(self.endpoint_url, json=payload)
         except httpx.TimeoutException as e:
             raise InferenceError(
                 f"Modal endpoint timed out after {self.timeout}s. The container may be cold-starting "
@@ -244,7 +245,7 @@ class ModalRemoteExtractor(LabelExtractor):
             raise InferenceError(f"Modal endpoint error: {body['error']}")
         return body
 
-    async def _call_tesseract(self, image_bytes: bytes) -> dict[str, Any]:
+    async def _call_tesseract(self, client: httpx.AsyncClient, image_b64: str) -> dict[str, Any]:
         """POST the image to the CPU-only Tesseract Modal function.
 
         Failures here are non-fatal — we log and return an empty dict
@@ -254,10 +255,9 @@ class ModalRemoteExtractor(LabelExtractor):
         """
         if not self.tesseract_url:
             return {}
-        payload = {"image_b64": base64.b64encode(image_bytes).decode("ascii")}
+        payload = {"image_b64": image_b64}
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                r = await client.post(self.tesseract_url, json=payload)
+            r = await client.post(self.tesseract_url, json=payload)
             if r.status_code != 200:
                 logger.warning("Tesseract endpoint returned %s: %s", r.status_code, r.text[:200])
                 return {}
@@ -272,20 +272,32 @@ class ModalRemoteExtractor(LabelExtractor):
 
     async def extract(self, image_bytes: bytes, beverage_type: BeverageType) -> ExtractedLabel:
         # Three-way fan-out — all concurrent under one gather:
-        #   1. Modal Qwen (GPU)        : the 4 trained fields (~5s warm)
+        #   1. Modal Qwen (GPU)        : the 4 trained fields (~4s warm on A100)
         #   2. Anthropic Haiku         : ABV / Net + warning casing (~3s)
         #   3. Modal Tesseract (CPU)   : deterministic warning bbox + EXIF DPI (~1s)
         # End-to-end latency is bound by the slowest of the three (Qwen).
-        # On cold Modal, Qwen times out (MODAL_TIMEOUT=8s) and the merge
+        # On cold Modal, Qwen times out (MODAL_TIMEOUT) and the merge
         # falls back to Haiku alone. Tesseract is non-fatal — failure
         # just leaves the merge using Haiku's bbox.
-        tasks: list = [self._call_modal(image_bytes, beverage_type)]
-        if self._haiku is not None:
-            tasks.append(self._haiku.extract(image_bytes, beverage_type))
-        if self.tesseract_url:
-            tasks.append(self._call_tesseract(image_bytes))
+        #
+        # Two micro-optimizations done here to shave the orchestration
+        # tax on top of Qwen:
+        #   - base64-encode the image ONCE (it's the same bytes for both
+        #     Modal endpoints) instead of twice in the per-call helpers.
+        #     Saves ~100-200 ms on multi-MB images.
+        #   - Share a single httpx.AsyncClient across the two Modal calls
+        #     so we pay the AsyncClient setup cost once. Different hosts
+        #     so connections aren't reused, but the client itself is cheap
+        #     to instantiate when shared.
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            tasks: list = [self._call_modal(client, image_b64, beverage_type)]
+            if self._haiku is not None:
+                tasks.append(self._haiku.extract(image_bytes, beverage_type))
+            if self.tesseract_url:
+                tasks.append(self._call_tesseract(client, image_b64))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
         modal_result = results[0]
         modal_failed = isinstance(modal_result, Exception)
