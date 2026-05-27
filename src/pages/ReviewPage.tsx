@@ -290,7 +290,14 @@ export default function ReviewPage() {
           <div className="card card--flush">
             {[...liveResult.fields]
               .sort((a, b) => ({ flag: 0, likely: 1, match: 2 } as Record<string, number>)[a.status] - ({ flag: 0, likely: 1, match: 2 } as Record<string, number>)[b.status])
-              .map(f => <FieldCompactRow key={f.fieldName} field={f} />)}
+              .map(f => (
+                <FieldCompactRow
+                  key={f.fieldName}
+                  field={f}
+                  onFlag={openReject}
+                  onConfirm={f.status === 'likely' ? () => quickConfirmAll() : undefined}
+                />
+              ))}
           </div>
 
           {liveResult.governmentWarning && (
@@ -330,7 +337,26 @@ export default function ReviewPage() {
   );
 }
 
-function FieldCompactRow({ field }: { field: VerificationField }) {
+function FieldCompactRow({ field, onFlag, onConfirm }: {
+  field: VerificationField;
+  /** Fires when the user clicks a Flag pill — opens the per-item reject
+   *  dialog with this field's reason pre-checked (along with any other
+   *  flagged reasons). The agent expects the pill to be actionable. */
+  onFlag?: () => void;
+  /** Fires when the user clicks a Likely pill — confirms this field
+   *  (and any other likelies) inline without opening a dialog. */
+  onConfirm?: () => void;
+}) {
+  // Decide what click does based on status: Flag → open reject; Likely →
+  // quick-confirm. Match is passive (no action — it's already passing).
+  const handler =
+    field.status === 'flag'   ? onFlag
+    : field.status === 'likely' ? onConfirm
+    : undefined;
+  const actionLabel =
+    field.status === 'flag'   ? `Open reject dialog (${field.fieldName} flagged)`
+    : field.status === 'likely' ? `Confirm this likely match`
+    : undefined;
   return (
     <div className="result-row" data-status={field.status}>
       <div style={{ padding: '12px 20px' }}>
@@ -344,7 +370,7 @@ function FieldCompactRow({ field }: { field: VerificationField }) {
               {' '}· Extracted <strong style={{ color: 'var(--color-ink)' }}>{field.extractedValue}</strong>
             </div>
           </div>
-          <StatusBadge status={field.status} />
+          <StatusBadge status={field.status} onClick={handler} actionLabel={actionLabel} />
         </div>
       </div>
     </div>
