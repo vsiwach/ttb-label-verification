@@ -20,16 +20,81 @@ and stable across model upgrades.
 
 ---
 
-## Headline result
+## Live demo
 
-| Metric | Claude Vision | Qwen2.5-VL-7B LoRA (ours) |
-|---|---|---|
-| Field extraction accuracy | 69.83% | **63.41%** (within 6pp) |
-| **Government Warning false-flag rate** | 26.67% | **25.00% — beats Claude** |
-| Latency (Modal A10G, warm) | n/a (API) | **3-5 s/image** |
-| Cost per 1000 labels | $5 (cloud API) | **~$1 (Modal scale-to-zero)** |
+🟢 **https://ttb-label-verification-ebon.vercel.app** — production URL,
+currently running Anthropic Haiku for vision extraction. All 7 mandatory
+checks (Brand / Class&type / Bottler / Country / ABV / Net contents /
+Government Warning verbatim+casing) are live; warm latency 5–7 s.
 
-Full apples-to-apples analysis: [`test/eval/QWEN_VS_CLAUDE.md`](test/eval/QWEN_VS_CLAUDE.md)
+The privacy-first on-prem variant — Qwen v2 LoRA (described below) on
+container-served GPU — is documented separately in
+[`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md). The trained weights ship
+as a GitHub Release attachment so Treasury can validate the on-prem path
+independently.
+
+---
+
+## Headline result — Qwen v2 LoRA fine-tuned on TTB-stratified data
+
+200-row TTB-live stratified holdout (spirits / wine / beer-malt), post-scorer-fix
+(commit `b817f82`). Direct head-to-head, identical labels, identical rubric:
+
+| Metric | **Qwen v2 LoRA (ours, on-prem)** | Haiku (cloud, zero-shot) | Delta |
+|---|---|---|---|
+| **Micro field accuracy** | **78.0%** | 37.2% | **+40.8 pp (2.1×)** |
+| Brand name | 82.0% | 67.0% | +15.0 pp |
+| Class & type | **91.5%** | 19.5% | **+72.0 pp** |
+| Bottler name/address | 52.0% | 1.0% | +51.0 pp |
+| Country of origin | 95.8% | 87.5% | +8.3 pp |
+| Latency mean (warm) | 3.83 s | 4.83 s | −1.00 s |
+
+**Headline:** fine-tuning Qwen2.5-VL-7B on 8,968 TTB-stratified labels
+(3 epochs, BF16 LoRA r=16) more than doubled extraction accuracy over the
+frontier cloud model on the 4 schema-trained fields. The biggest delta is
+Class & type, where the agency's class-code vocabulary (e.g. "SPANISH GRAPE
+BRANDY FB") is invisible to Haiku zero-shot but learned cleanly by the LoRA.
+
+This is the empirical case for the on-prem path: agency-curated training
+data → fine-tune on your own GPU → outperform the frontier API while
+keeping data inside the boundary. Take-home docs:
+
+- Full head-to-head eval: [`test/eval/data/holdout_eval/v1_vs_v2_comparison.md`](test/eval/data/holdout_eval/v1_vs_v2_comparison.md)
+- Earlier 90-image apples-to-apples: [`test/eval/QWEN_VS_CLAUDE.md`](test/eval/QWEN_VS_CLAUDE.md)
+
+### Why v2 beats v1 (which beat nothing)
+
+The improvement came from changing the **training data**, not the model:
+
+| Version | Trained on | Epochs | Micro accuracy |
+|---|---|---|---|
+| v1 | COLA Cloud free sample, N=1,377 | 2 | 38.4% |
+| **v2** | TTB Public COLA Registry stratified scrape, **N=8,968** | **3** | **78.0%** |
+
+The two takeaways for any agency considering the same path:
+
+1. **Schema matters.** v1's wider schema (asking the model to emit ABV,
+   net contents, and the Government Warning text) introduced hallucination
+   on long verbatim strings. v2 narrowed to 4 fields with cleanly-attested
+   ground truth → cut hallucination to zero on those fields.
+2. **Volume matters.** 6.5× more training data, 50% more epochs. The
+   accuracy gain (38% → 78%) tracks the data, not the architecture.
+
+### Trained models — for Treasury to validate independently
+
+The v1 and v2 LoRA adapters are released as GitHub Release assets so
+Treasury can run them on their own infrastructure:
+
+- **[GitHub Releases](https://github.com/vsiwach/ttb-label-verification/releases)** — download links + checksums + reproducibility manifest
+- v2 adapter bundle: 182 MB safetensors + tokenizer + manifest
+- v1 adapter bundle: 162 MB safetensors + tokenizer + manifest
+- Eval pack: 200-row holdout predictions for v1, v2, and Haiku — re-score
+  with any rubric
+
+To run on-prem, see [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md).
+The deploy target can be Modal, Azure ML, Cerebrium, RunPod, or any GPU
+container host — the `LabelExtractor` interface keeps the verifier code
+identical across providers.
 
 ---
 

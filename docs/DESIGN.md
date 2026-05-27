@@ -485,24 +485,45 @@ Colab, scoring happens locally through the actual rules engine. See
 
 ## 9. Deployment
 
-### Frontend
-- Static bundle from `npm run build` → Vercel (or any static host).
-- One env var: `VITE_API_BASE_URL` points the SPA at the backend (e.g. `https://api.example.com/api`).
+### Current live state (take-home submission)
 
-### Backend (Claude-only path)
-- FastAPI in `mock` or `cloud` or `claude-code` mode runs on any small CPU host (Render, Fly.io, Azure App Service, Docker container on a Mac mini).
-- `backend/Dockerfile` is the cloud-mode variant.
+| Component | Where | Mode | Notes |
+|---|---|---|---|
+| Frontend + backend | Vercel (`ttb-label-verification-ebon.vercel.app`) | `INFERENCE_MODE=cloud` (Haiku) | Live, 5–7 s warm, all 7 checks |
+| Qwen v2 LoRA endpoint | not currently live | Modal deploy template ready | Validated separately on 200-row holdout — see headline result in README |
+| Trained weights | [GitHub Release](https://github.com/vsiwach/ttb-label-verification/releases) | downloadable | v1 + v2 adapters + eval pack |
 
-### Backend + SFT (production candidate)
-- Backend in `modal` mode → calls a Modal-hosted Qwen endpoint over HTTPS.
-- See `docs/DEPLOY_RUNBOOK.md` for the 5-step `make modal-upload-adapter` → `make modal-deploy` → wire `MODAL_ENDPOINT_URL` runbook.
-- Modal A10G scale-to-zero: **$0/hr idle**, ~$0.001/inference active.
+The production target is the Modal/Qwen path: backend in `modal` mode →
+Modal-hosted Qwen v2 over HTTPS. The runbook in
+`docs/DEPLOY_RUNBOOK.md` reproduces that deploy in ~30 minutes given a
+GPU host (Modal / Cerebrium / RunPod / Azure ML). Treasury can validate
+by downloading the adapter from the GitHub Release and pointing
+`make modal-upload-adapter` at their own Modal workspace.
 
-### Backend on agency hardware (FedRAMP)
-- Same Docker image runs inside Azure Gov / AWS GovCloud / on-prem.
-- `INFERENCE_MODE=sft` loads the LoRA adapter from `backend/models/qwen2_5_vl_7b/adapter/` on a local GPU (A10G or better).
-- No outbound network calls — everything stays inside the boundary.
-- Rules engine runs identically regardless of mode (it's the durable value).
+### Three deployment topologies the codebase supports
+
+**A. Public path (current Vercel live demo)**
+- Static React bundle on Vercel CDN
+- FastAPI as `@vercel/python` serverless function
+- `INFERENCE_MODE=cloud`, vision extraction via Anthropic Haiku
+- Privacy posture: label images traverse Anthropic API at inference time
+- Cost: ~$0–5/mo (Vercel free tier) + ~$1/1000 labels (Haiku)
+
+**B. Privacy-first path (Modal / Cerebrium / similar)**
+- Same React + FastAPI codebase
+- `INFERENCE_MODE=modal`, vision extraction via Qwen v2 LoRA on container-served GPU
+- No external API; data stays inside the chosen provider's boundary
+- Cost: scale-to-zero ~$0/hr idle, ~$0.001/inference active on A10G
+- Deploy script: `backend/modal_deploy/serve_qwen_v2.py` (works on any container host with minor decorator edits)
+
+**C. Agency-hosted path (Azure Government / on-prem GPU)**
+- Same Docker image runs inside Azure Gov / AWS GovCloud / agency on-prem
+- `INFERENCE_MODE=sft` loads the LoRA adapter from local disk on agency GPU (A10G or better)
+- No outbound network calls — everything inside the accreditation boundary
+- Rules engine runs identically — same code path
+
+The `LabelExtractor` ABC + factory means swapping between A / B / C is one
+env var. The verifier code never changes.
 
 ## 10. PRD alignment — what's built, what diverged, what's gap
 
