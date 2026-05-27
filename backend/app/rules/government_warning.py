@@ -330,7 +330,15 @@ def analyze_warning(
         #                          accounting for scan-resolution slop
         clean = measured_mm >= (min_mm * 0.9)
         suspicious = measured_mm >= (min_mm * 0.5)
-        font_size_ok = suspicious  # only False when catastrophically below
+        # On assumed DPI we can't trust a hard-fail no matter how low
+        # the measurement reads — the 300-DPI submission default is
+        # often 2-3x off from the actual scan resolution, so a 0.6 mm
+        # measurement may correspond to a perfectly compliant 2 mm
+        # printed warning. Treat assumed-DPI as advisory-only, mirroring
+        # how body_bold / contrast / separation are handled. Only EXIF-
+        # backed measurements can fail the gate.
+        is_assumed = dpi_source == "assumed"
+        font_size_ok = True if is_assumed else suspicious
 
         if clean:
             pass  # no deviation
@@ -349,6 +357,20 @@ def analyze_warning(
                     f"27 CFR 16.22 requires {min_mm:.0f} mm minimum for this "
                     f"container size. {dpi_note}. Confirm visually with a ruler "
                     f"on a printed sample for compliance-grade verification."
+                ),
+            ))
+        elif is_assumed:
+            # Below 0.5× threshold but DPI was assumed → still advisory.
+            # The measurement is unreliable enough that we can't claim
+            # the printed label is non-compliant without EXIF backing.
+            deviations.append(WarningDeviation(
+                type="fontSizeAdvisory",
+                message=(
+                    f"Warning text measures ~{measured_mm:.2f} mm per line under "
+                    f"the assumed 300-DPI default — well below the {min_mm:.0f} mm "
+                    f"27 CFR 16.22 minimum, but the image lacks EXIF DPI so this "
+                    f"estimate may be off by 2-3x. The printed label may be fine; "
+                    f"confirm visually with a ruler on a printed sample."
                 ),
             ))
         else:
