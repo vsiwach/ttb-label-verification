@@ -45,6 +45,30 @@ export function saveDecisionLocally(entry: DecisionEntry): void {
   }
 }
 
+/** Read the locally-staged decision log and return the most recent decision
+ *  for each COLA number. Used by the /samples gallery to show an "Approved"
+ *  / "Rejected" badge on cards the agent has already actioned. Returns an
+ *  empty map when localStorage is unavailable (SSR) or unreadable. */
+export function readDecisionsByCola(): Map<string, DecisionEntry> {
+  const out = new Map<string, DecisionEntry>();
+  if (typeof window === 'undefined') return out;
+  try {
+    const raw = window.localStorage.getItem(DECISIONS_STORAGE_KEY);
+    if (!raw) return out;
+    const list = JSON.parse(raw) as DecisionEntry[];
+    // List is stored newest-first (unshift), so the FIRST entry per COLA
+    // is the agent's most recent decision — that's the one to display.
+    for (const entry of list) {
+      if (entry.colaNumber && !out.has(entry.colaNumber)) {
+        out.set(entry.colaNumber, entry);
+      }
+    }
+  } catch (e) {
+    console.warn('Decision log unreadable:', e);
+  }
+  return out;
+}
+
 export function deriveReasons(result: VerificationResult): SuggestedReason[] {
   const reasons: SuggestedReason[] = [];
   for (const f of result.fields) {

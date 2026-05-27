@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../api/client';
 import Alert from '../components/Alert';
 import Button from '../components/Button';
 import { SkeletonBlock } from '../components/Skeleton';
+import { readDecisionsByCola, type DecisionEntry, type DecisionMode } from '../components/DecisionPanel';
 import { IconArrowR, IconCheck, IconInfo } from '../components/icons';
 
 const VERDICT_TINT: Record<string, { bg: string; fg: string; label: string }> = {
@@ -36,12 +37,29 @@ export default function SamplesPage() {
   const [query, setQuery]         = useState('');
   const [filter, setFilter]       = useState<Filter>('all');
   const [selected, setSelected]   = useState<Set<string>>(new Set());
+  // Map COLA # → most recent agent decision from localStorage. Refreshed
+  // on mount + every storage event (so /result → save → back-button
+  // re-renders the gallery with the new badge without a hard reload).
+  const [decisions, setDecisions] = useState<Map<string, DecisionEntry>>(() => readDecisionsByCola());
 
   useEffect(() => {
     fetchAllSamples()
       .then(setSamples)
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => setDecisions(readDecisionsByCola());
+    window.addEventListener('storage', refresh);
+    // Re-read whenever the tab regains focus (the agent might have
+    // approved/rejected in another tab, or saved a decision then hit
+    // the back button — focus return is a natural moment to refresh).
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('focus', refresh);
+    };
   }, []);
 
   function toggleSelected(id: string) {
@@ -208,6 +226,7 @@ export default function SamplesPage() {
                 forBatch={forBatch}
                 isSelected={selected.has(s.id)}
                 onToggle={forBatch ? () => toggleSelected(s.id) : undefined}
+                decision={s.applicationData.colaNumber ? decisions.get(s.applicationData.colaNumber) : undefined}
               />
             ))}
           </div>
@@ -228,10 +247,25 @@ interface SampleCardProps {
   forBatch?: boolean;
   isSelected?: boolean;
   onToggle?: () => void;
+  /** The most recent agent decision for this sample's COLA #, if one
+   *  has been recorded locally. When present, the card shows a
+   *  "decided" badge over the engine's predicted-verdict pill so the
+   *  agent can see at a glance which samples are already actioned. */
+  decision?: DecisionEntry;
 }
 
-function SampleCard({ sample, forBatch, isSelected, onToggle }: SampleCardProps) {
+// Pretty labels + colors for the "decided" badge. Approve uses match-green,
+// reject uses flag-red, requestImage uses likely-amber — same palette as
+// the verdict pill so the eye doesn't have to learn a new color system.
+const DECISION_BADGE: Record<DecisionMode, { bg: string; fg: string; label: string }> = {
+  'approve':      { bg: 'var(--status-match-bg)',  fg: 'var(--status-match-fg)',  label: 'approved' },
+  'reject':       { bg: 'var(--status-flag-bg)',   fg: 'var(--status-flag-fg)',   label: 'rejected' },
+  'requestImage': { bg: 'var(--status-likely-bg)', fg: 'var(--status-likely-fg)', label: 'image requested' },
+};
+
+function SampleCard({ sample, forBatch, isSelected, onToggle, decision }: SampleCardProps) {
   const tint = VERDICT_TINT[sample.expectedOutcome] || VERDICT_TINT['auto-pass'];
+  const decisionBadge = decision ? DECISION_BADGE[decision.decision] : null;
   const base = API_BASE_URL.replace(/\/api$/, '');
   const imgSrc = `${base}${sample.imageUrl}`;
 
@@ -278,11 +312,29 @@ function SampleCard({ sample, forBatch, isSelected, onToggle }: SampleCardProps)
               }}>{sample.applicationData.productName}</p>
             )}
           </div>
-          <span style={{
-            fontSize: 11, padding: '2px 6px', borderRadius: 999,
-            background: tint.bg, color: tint.fg, fontWeight: 600,
-            textTransform: 'lowercase', flexShrink: 0, whiteSpace: 'nowrap',
-          }}>{tint.label}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+            {decisionBadge && (
+              <span
+                title={`Recorded ${new Date(decision!.savedAt).toLocaleString()} — ${decision!.logEntry.slice(0, 80)}`}
+                style={{
+                  fontSize: 11, padding: '2px 8px', borderRadius: 999,
+                  background: decisionBadge.bg, color: decisionBadge.fg, fontWeight: 700,
+                  textTransform: 'lowercase', whiteSpace: 'nowrap',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}
+              >
+                <IconCheck size={11} aria-hidden="true" /> {decisionBadge.label}
+              </span>
+            )}
+            <span style={{
+              fontSize: 11, padding: '2px 6px', borderRadius: 999,
+              background: tint.bg, color: tint.fg, fontWeight: 600,
+              textTransform: 'lowercase', whiteSpace: 'nowrap',
+              // Dim the engine's predicted pill when the agent has already
+              // decided — the decision is the authoritative state now.
+              opacity: decisionBadge ? 0.55 : 1,
+            }}>{tint.label}</span>
+          </div>
         </div>
         <p style={{
           margin: 0, fontSize: 13, color: 'var(--color-ink-muted)',
