@@ -95,6 +95,22 @@ def classify_field(declared: str, extracted: str) -> FieldVerdict:
             similarity=0.0,
             note="Field not detected on the label.",
         )
+
+    # Empty declared but non-empty extracted: the application data didn't
+    # provide a value for this field (common for fields the TTB Public COLA
+    # Registry HTML doesn't expose — e.g. alcohol content, net contents).
+    # The model DID find the value on the label, which is useful information
+    # but cannot be compared against a declaration. Route to 'likely' with a
+    # clear note so the agent confirms manually rather than treating an
+    # un-declared-but-present field as a substantive mismatch.
+    if declared is None or declared == "":
+        return FieldVerdict(
+            status="likely",
+            normalized_declared="",
+            normalized_extracted=normalize_for_compare(extracted),
+            similarity=1.0,
+            note="Extracted from the label; not declared on the application — agent to confirm.",
+        )
     # Strict-equal: differs only in OCR noise / smart quotes / whitespace.
     if _strict_normalize(declared) == _strict_normalize(extracted):
         nd = normalize_for_compare(declared)

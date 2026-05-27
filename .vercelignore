@@ -7,7 +7,10 @@ backend/.venv/
 # Eval/training assets the function does not read.
 # (test/synthetic and test/eval/data/{cola_sample.csv,images/} ARE shipped — samples.py needs them.)
 test/eval/data/qwen_sft/
-test/eval/data/ttb_live/
+test/eval/data/ttb_live/images/
+test/eval/data/ttb_live/scrape.log
+# Keep test/eval/data/ttb_live/curated/* — these are the 20 curated TTB.gov
+# samples shipped in the picker, ~6 MB total.
 test/eval/data/ttb_live_test/
 test/eval/report*
 test/eval/qwen_report*

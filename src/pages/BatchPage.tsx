@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { ApplicationData, BatchItemResult, VerificationField } from '../api/types';
 import { verifyBatch } from '../api/client';
 import { SAMPLE_APPLICATIONS as SAVED_APPLICATIONS } from '../api/sampleApplications';
+import { fetchSamples, fetchSampleImage, type SampleSummary } from '../api/samples';
 import { verifyStore, type UploadedImage } from '../store/verifyStore';
 import Alert from '../components/Alert';
 import Button from '../components/Button';
@@ -163,6 +164,11 @@ function UploadPanel({ files, shared, setShared, onFiles, onClear, onStart }: Up
 
   return (
     <>
+      <SamplePickerForBatch onFiles={onFiles} />
+
+      <hr className="divider" style={{ marginTop: 24, marginBottom: 24 }} />
+
+      <h3 style={{ margin: '0 0 8px', fontSize: 'var(--fs-18)' }}>Or drop your own labels</h3>
       <FileDropzone
         accept="image/jpeg,image/png"
         multiple
@@ -439,5 +445,204 @@ function ItemRow({ item, onOpen }: { item: BatchItemResult; onOpen: (item: Batch
         </span>
       </button>
     </li>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-sample picker for /batch
+//
+// Same data source as the single-upload picker — fetches /api/samples, lets
+// the agent check multiple labels, and adds them to the batch queue as Files
+// (downloaded as Blobs from /api/samples/{id}/image).
+// ─────────────────────────────────────────────────────────────────────────────
+interface SamplePickerForBatchProps {
+  onFiles: (files: File[]) => void;
+}
+
+function SamplePickerForBatch({ onFiles }: SamplePickerForBatchProps) {
+  const [samples, setSamples] = useState<SampleSummary[] | null>(null);
+  const [error, setError]   = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSamples()
+      .then(s => { if (!cancelled) setSamples(s); })
+      .catch(e => { if (!cancelled) setError(String(e.message || e)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Group by tier — TTB-live highlighted as having DPI metadata
+  const groups = useMemo(() => {
+    const g: Record<string, SampleSummary[]> = { 'ttb-live': [], real: [], synthetic: [] };
+    for (const s of samples || []) g[s.kind]?.push(s);
+    return g;
+  }, [samples]);
+
+  function toggle(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function selectAllInGroup(group: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      for (const s of groups[group] || []) next.add(s.id);
+      return next;
+    });
+  }
+  function clearAll() { setSelected(new Set()); }
+
+  async function addSelected() {
+    if (!samples || selected.size === 0) return;
+    setLoading(true);
+    try {
+      const picks = samples.filter(s => selected.has(s.id));
+      // Download each sample image as a Blob, wrap as a File the batch can ingest
+      const files = await Promise.all(picks.map(async s => {
+        const blob = await fetchSampleImage(s);
+        const ext  = blob.type.includes('jpeg') ? 'jpg' : (blob.type.includes('webp') ? 'webp' : 'png');
+        const name = `${s.id}.${ext}`;
+        return new File([blob], name, { type: blob.type || 'image/jpeg' });
+      }));
+      onFiles(files);
+      setSelected(new Set());
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (error) {
+    return <Alert variant="error" title="Couldn't load samples">{error}</Alert>;
+  }
+  if (!samples) {
+    return (
+      <div className="alert alert--info" role="status" style={{ padding: 12 }}>
+        Loading sample labels…
+      </div>
+    );
+  }
+
+  const ttb = groups['ttb-live'] || [];
+  const real = groups['real'] || [];
+
+  return (
+    <section aria-labelledby="batch-picker-h" style={{
+      border: '1px solid var(--color-border)', borderRadius: 12, padding: 16,
+      background: 'var(--color-bg-tint)',
+    }}>
+      <header style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8 }}>
+        <h3 id="batch-picker-h" style={{ margin: 0, fontSize: 'var(--fs-18)' }}>
+          Load sample labels for batch
+        </h3>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+          {selected.size} selected
+        </span>
+      </header>
+      <p style={{ margin: '0 0 12px', fontSize: 14, color: 'var(--color-ink-muted)' }}>
+        Pick multiple TTB-approved sample labels to exercise the batch flow. TTB-live
+        labels have DPI metadata, so the 27 CFR 16.22 type-size check auto-assesses.
+      </p>
+
+      {ttb.length > 0 && (
+        <SampleGroup
+          title="TTB Public COLA Registry"
+          subtitle={`${ttb.length} labels · DPI present · supports type-size check`}
+          items={ttb}
+          selected={selected}
+          onToggle={toggle}
+          onSelectAll={() => selectAllInGroup('ttb-live')}
+        />
+      )}
+      {real.length > 0 && (
+        <SampleGroup
+          title="COLA Cloud free sample"
+          subtitle={`${real.length} labels · no DPI · type-size check shows 'Not assessable'`}
+          items={real}
+          selected={selected}
+          onToggle={toggle}
+          onSelectAll={() => selectAllInGroup('real')}
+        />
+      )}
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+        <Button
+          size="md"
+          disabled={selected.size === 0 || loading}
+          trailingIcon={IconArrowR}
+          onClick={addSelected}
+        >
+          {loading ? 'Adding…' : `Add ${selected.size} selected to batch`}
+        </Button>
+        {selected.size > 0 && (
+          <Button variant="ghost" onClick={clearAll}>Clear selection</Button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+interface SampleGroupProps {
+  title: string;
+  subtitle: string;
+  items: SampleSummary[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onSelectAll: () => void;
+}
+
+function SampleGroup({ title, subtitle, items, selected, onToggle, onSelectAll }: SampleGroupProps) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+        <h4 style={{ margin: 0, fontSize: 'var(--fs-14)' }}>{title}</h4>
+        <span style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>{subtitle}</span>
+        <button
+          type="button" className="btn btn--ghost"
+          style={{ marginLeft: 'auto', minHeight: 28, padding: '0 8px', fontSize: 12 }}
+          onClick={onSelectAll}
+        >
+          Select all
+        </button>
+      </div>
+      <ul style={{
+        listStyle: 'none', padding: 0, margin: 0,
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 6,
+        maxHeight: 220, overflowY: 'auto',
+      }}>
+        {items.map(s => {
+          const isSel = selected.has(s.id);
+          return (
+            <li key={s.id}>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
+                borderRadius: 6, cursor: 'pointer',
+                background: isSel ? 'var(--color-bg-accent)' : 'var(--color-bg)',
+                border: `1px solid ${isSel ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                fontSize: 13,
+              }}>
+                <input
+                  type="checkbox"
+                  checked={isSel}
+                  onChange={() => onToggle(s.id)}
+                  style={{ cursor: 'pointer' }}
+                />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <strong>{s.applicationData.brandName || s.id}</strong>
+                  <span style={{ color: 'var(--color-ink-subtle)', marginLeft: 6 }}>
+                    · {s.applicationData.classType?.slice(0, 24) || s.applicationData.beverageType}
+                  </span>
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

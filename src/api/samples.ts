@@ -5,7 +5,7 @@
 import type { ApplicationData } from './types';
 import { API_BASE_URL } from './client';
 
-export type SampleKind = 'synthetic' | 'real';
+export type SampleKind = 'synthetic' | 'real' | 'ttb-live';
 
 export interface SampleSummary {
   id: string;

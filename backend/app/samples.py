@@ -39,11 +39,32 @@ SYNTHETIC_JSON = SYNTHETIC_DIR / "expected_results.json"
 REAL_CSV      = REPO_ROOT / "test" / "eval" / "data" / "cola_sample.csv"
 REAL_DIR      = REPO_ROOT / "test" / "eval" / "data" / "images"
 AUDIT_JSON    = REPO_ROOT / "test" / "eval" / "real_audit.json"
-# TTB live tier — scraped directly from the Public COLA Registry via
-# test/eval/scrape_ttb_registry.py. Field 8 ("Name and Address of
-# Applicant") IS populated here, unlike the COLA Cloud sample.
-TTB_LIVE_CSV = REPO_ROOT / "test" / "eval" / "data" / "ttb_live" / "ttb_live.csv"
-TTB_LIVE_DIR = REPO_ROOT / "test" / "eval" / "data" / "ttb_live" / "images"
+# TTB live tier — labels scraped directly from the TTB Public COLA Registry
+# via test/eval/scrape_ttb_registry.py. Field 8 ("Name and Address of
+# Applicant") IS populated here, unlike the COLA Cloud sample, and ~51% of
+# rows carry DPI metadata in the JPEG header — enabling the deterministic
+# 27 CFR 16.22 type-size check.
+#
+# The full scrape (~20K rows / ~2.5GB of images) lives under ttb_live/ but is
+# too large to ship in the Vercel function bundle. A curated subset under
+# ttb_live/curated/ (20 labels with DPI ≥ 100, balanced across spirits /
+# wine / beer-malt) ships in the demo. Production deploys use the curated
+# subset; full-dataset workflows (eval, scraping) point at the full set.
+_CURATED_TTB_LIVE_CSV = REPO_ROOT / "test" / "eval" / "data" / "ttb_live" / "curated" / "ttb_live.csv"
+_CURATED_TTB_LIVE_DIR = REPO_ROOT / "test" / "eval" / "data" / "ttb_live" / "curated" / "images"
+_FULL_TTB_LIVE_CSV    = REPO_ROOT / "test" / "eval" / "data" / "ttb_live" / "ttb_live.csv"
+_FULL_TTB_LIVE_DIR    = REPO_ROOT / "test" / "eval" / "data" / "ttb_live" / "images"
+
+# Prefer the curated set when both CSV + image dir exist (production path).
+# Fall back to the full scrape only when the curated subset is absent — keeps
+# local dev / eval / scraping workflows backwards-compatible.
+if _CURATED_TTB_LIVE_CSV.exists() and _CURATED_TTB_LIVE_DIR.exists():
+    TTB_LIVE_CSV = _CURATED_TTB_LIVE_CSV
+    TTB_LIVE_DIR = _CURATED_TTB_LIVE_DIR
+else:
+    TTB_LIVE_CSV = _FULL_TTB_LIVE_CSV
+    TTB_LIVE_DIR = _FULL_TTB_LIVE_DIR
+
 TTB_LIVE_AUDIT_JSON = REPO_ROOT / "test" / "eval" / "ttb_live_audit.json"
 
 SampleKind = Literal["synthetic", "real", "ttb-live"]
