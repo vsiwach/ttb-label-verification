@@ -222,3 +222,78 @@ def test_type_size_omitted_when_bbox_missing():
         container_ml=750.0, image_dpi=(200, 200),
     )
     assert a.fontSizeOk is None
+
+
+# ── Regression: casing fallback when transcription drops the preamble ───────
+def test_casing_passes_when_transcription_drops_preamble_but_flag_is_true():
+    """Real-world failure mode: Haiku sometimes returns the warning body in
+    detected_text but OMITS the literal 'GOVERNMENT WARNING:' preamble, while
+    correctly reporting casing_all_caps=True from its visual observation.
+
+    The engine MUST trust the model's flag in that gap (it's a visual
+    observation independent of transcription completeness), not flag a
+    compliant label as non-compliant just because the preamble didn't
+    appear in the transcribed text.
+
+    See: github.com/vsiwach/ttb-label-verification issue surfaced in QA
+    on the Pilsener sample (May 2026).
+    """
+    # Body only — no "GOVERNMENT WARNING:" preamble in the text
+    body_only = (
+        "(1) According to the Surgeon General, women should not drink alcoholic "
+        "beverages during pregnancy because of the risk of birth defects. "
+        "(2) Consumption of alcoholic beverages impairs your ability to drive a "
+        "car or operate machinery, and may cause health problems."
+    )
+    a = analyze_warning(
+        detected_text=body_only,
+        present=True,
+        style=_good_style(),  # casing_all_caps=True (model's visual flag)
+        container_ml=750.0,
+    )
+    assert a.present is True
+    # casing should PASS via the style.casing_all_caps fallback
+    assert a.casingBoldOk is True, (
+        "Casing must pass when the model's visual flag says caps=True, "
+        "even if the preamble didn't make it into detected_text."
+    )
+    # No 'casing' deviation should be raised
+    assert not any(d.type == "casing" for d in a.deviations)
+
+
+def test_casing_fails_when_flag_is_false_and_preamble_missing():
+    """The flip side: if BOTH the preamble is missing AND the model says caps=False,
+    we must still flag it. No positive evidence either way → conservative flag."""
+    body_only = "(1) According to the Surgeon General..."
+    a = analyze_warning(
+        detected_text=body_only,
+        present=True,
+        style=WarningStyle(
+            casing_all_caps=False,  # model says NOT in caps
+            heading_bold=False, body_bold=False,
+            contrast_ok=True, separate_and_apart=True,
+        ),
+        container_ml=750.0,
+    )
+    assert a.casingBoldOk is False
+    assert any(d.type == "casing" for d in a.deviations)
+
+
+def test_casing_passes_when_preamble_is_literally_in_caps_in_text():
+    """Direct-evidence path: if 'GOVERNMENT WARNING:' appears literally in the
+    transcribed text, we use that (don't need the model's flag)."""
+    text_with_preamble = (
+        "GOVERNMENT WARNING: (1) According to the Surgeon General..."
+    )
+    a = analyze_warning(
+        detected_text=text_with_preamble,
+        present=True,
+        # Even with a contradictory flag, the literal text wins (positive evidence)
+        style=WarningStyle(
+            casing_all_caps=False,  # model flag is wrong; text wins
+            heading_bold=True, body_bold=False,
+            contrast_ok=True, separate_and_apart=True,
+        ),
+        container_ml=750.0,
+    )
+    assert a.casingBoldOk is True

@@ -91,12 +91,15 @@ function RequiredText({ ops }: { ops: DiffOp[] }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Checks
 // ─────────────────────────────────────────────────────────────────────────────
-const CHECKS: Array<{ key: keyof GovernmentWarningAnalysis; title: string; ok: string; bad: string }> = [
+const CHECKS: Array<{ key: keyof GovernmentWarningAnalysis; title: string; ok: string; bad: string; notAssessable?: string }> = [
   { key: 'present',          title: 'Statement present',                                ok: 'Found on the label',                  bad: 'Not detected on the label' },
   { key: 'verbatimMatch',    title: 'Exact verbatim wording',                           ok: 'Wording matches the required text',   bad: 'Wording does not match — see diff below' },
   { key: 'casingBoldOk',     title: '"GOVERNMENT WARNING" all caps and bold',           ok: 'Correctly styled',                    bad: 'Title is not ALL CAPS and/or not bold' },
-  // fontSizeOk only renders when actually computed (bbox + DPI both available).
-  { key: 'fontSizeOk',       title: 'Minimum type size for container',                  ok: 'Meets 27 CFR 16.22 minimum (measured from DPI)', bad: 'Below 27 CFR 16.22 minimum — see deviation' },
+  // fontSizeOk renders as an explicit "Not assessable" advisory when the
+  // extractor didn't return a warning bbox or the image has no DPI metadata.
+  // Treasury sees the check exists and why it was skipped, rather than the
+  // check silently disappearing.
+  { key: 'fontSizeOk',       title: 'Minimum type size for container',                  ok: 'Meets 27 CFR 16.22 minimum (measured from DPI)', bad: 'Below 27 CFR 16.22 minimum — see deviation', notAssessable: 'Not assessable — image has no DPI metadata or extractor did not return a warning bbox. 27 CFR 16.22 requires 1–3 mm depending on container size; verify visually on the printed sample.' },
   { key: 'contrastOk',       title: 'Adequate contrast',                                ok: 'Legible against background',          bad: 'Contrast is too low for legibility' },
   { key: 'separateAndApart', title: '"Separate and apart" from other copy',             ok: 'Stands alone on the label',           bad: 'Interspersed with other label copy' },
 ];
@@ -234,25 +237,30 @@ export default function GovernmentWarningPanel({ gw, loading }: GovernmentWarnin
       <div className="gw__body">
         <h4 className="gw__h4">Compliance checks</h4>
         <ul className="gw__checks" aria-label="Government Warning compliance checks">
-          {CHECKS.filter(c => {
-            // Skip fontSizeOk when it's null/undefined — those inputs
-            // weren't available (no DPI on the image, or extractor
-            // returned no bbox). The footer notes this.
-            if (c.key === 'fontSizeOk' && (gw[c.key] === null || gw[c.key] === undefined)) {
-              return false;
-            }
-            return true;
-          }).map(c => {
+          {CHECKS.map(c => {
             const ok = gw[c.key] === true;
+            // "Not assessable" advisory: the check is in the schema but the
+            // extractor didn't supply the inputs needed to evaluate it
+            // (e.g. fontSizeOk without bbox + DPI). Render with advisory
+            // tone + explanation rather than silently hiding.
+            const isNotAssessable = (gw[c.key] === null || gw[c.key] === undefined) && c.notAssessable;
             // Near-verbatim is the only remaining advisory case — OCR-slip
             // wording that's >=95% similarity to the canonical text.
             const relatedDev = gw.deviations.find(d => {
               if (c.key === 'verbatimMatch') return d.type === 'wording' || d.type === 'near_verbatim';
               return false;
             });
-            const advisory = !ok && relatedDev && /near_verbatim/i.test(relatedDev.type);
-            const tone: CheckTone = ok ? 'match' : advisory ? 'advisory' : 'flag';
-            const label = ok ? c.ok : advisory ? (relatedDev?.message || c.bad) : c.bad;
+            const nearVerbatimAdvisory = !ok && relatedDev && /near_verbatim/i.test(relatedDev.type);
+            const tone: CheckTone =
+              ok ? 'match'
+              : isNotAssessable ? 'advisory'
+              : nearVerbatimAdvisory ? 'advisory'
+              : 'flag';
+            const label =
+              ok ? c.ok
+              : isNotAssessable ? c.notAssessable!
+              : nearVerbatimAdvisory ? (relatedDev?.message || c.bad)
+              : c.bad;
             return (
               <CheckRow
                 key={c.key as string}

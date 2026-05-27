@@ -187,13 +187,24 @@ def analyze_warning(
     # signals: heading must be ALL CAPS, and body must NOT be bold (when the
     # model can tell). heading_bold is recorded but doesn't gate the verdict.
     #
-    # The heading-all-caps check is derived deterministically from the raw
-    # detected text rather than the extractor's self-reported boolean (which
-    # has shipped wrong on labels with clearly-all-caps headings). If the
-    # extractor returned text, the regex over the actual characters is
-    # ground truth.
+    # Heading-all-caps decision logic (positive-evidence preferred):
+    #   1. If the preamble "GOVERNMENT WARNING:" appears literally in the
+    #      transcribed text → direct evidence, pass.
+    #   2. Else if the extractor's self-reported `casing_all_caps` is True
+    #      → the model is making a *visual* observation of the heading style,
+    #      which is independent of whether it transcribed the preamble into
+    #      `detected_text`. Some Haiku responses include only the warning body
+    #      (omitting "GOVERNMENT WARNING:") in detected_text while correctly
+    #      reporting the visual caps observation; trusting the flag in that
+    #      gap avoids false-positive flags on clearly compliant labels.
+    #   3. Else → no positive evidence, treat as non-compliant.
     derived_all_caps = _heading_is_all_caps(detected_text)
-    casing_all_caps = derived_all_caps if detected_text else bool(style and style.casing_all_caps)
+    if derived_all_caps:
+        casing_all_caps = True
+    elif style and style.casing_all_caps:
+        casing_all_caps = True
+    else:
+        casing_all_caps = False
     body_bold = bool(style and style.body_bold)
     casing_bold_ok = casing_all_caps and not body_bold
     if not casing_bold_ok:
