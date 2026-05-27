@@ -201,12 +201,17 @@ modal volume delete ttb-qwen-adapter
 
 ## What's deployed
 
-- **Base model**: `Qwen/Qwen2.5-VL-7B-Instruct` (BF16, 16 GB, downloaded once to a persistent HF cache volume)
-- **LoRA adapter**: from `backend/models/qwen2_5_vl_7b/adapter/` (~190 MB, on Modal volume)
-- **Inference path**: BF16 base → LoRA merged in (no quantization, no PEFT overhead at inference)
-- **Image preprocessing**: cap at 640×640 area → ~400 visual tokens (matches eval notebook's `_resize_for_eval`)
-- **Generation**: max_new_tokens=384, do_sample=False, pad=eos
-- **Expected latency**: 3-5 s on warm container (A10G), 30-60 s cold start
+- **Qwen app** (`ttb-qwen-extractor-v2`, A10G):
+  - Base: `Qwen/Qwen2.5-VL-7B-Instruct` BF16, 16 GB, persistent HF cache volume
+  - LoRA: v2 adapter from `backend/models/qwen2_5_vl_7b_v2/adapter/` (~190 MB)
+  - Inference: BF16 base → LoRA merged in
+  - Preprocessing: `MAX_PIXELS=1024*1024` (~1M) — larger than the 640×640 eval cap because production labels often need the headroom
+  - Generation: `max_new_tokens=256`, `do_sample=False`, pad=eos
+  - Kernel warmup: `@modal.enter()` runs one dummy 560×560 inference after `load_model()` so first user request hits warm kernels
+  - Trained fields only: brand / class / bottler / country
+  - Expected latency: ~4.5-6 s warm steady-state, 30-60 s cold start
+- **Tesseract app** (`ttb-tesseract`, CPU): warning bbox back-scaled to original-image pixels + EXIF DPI (null when absent); no model in the loop
+- **Hybrid layer (not Modal-hosted)**: Anthropic Haiku 4.5 reads the verbatim Government Warning text + ABV + net contents in parallel via `asyncio.gather` from the Vercel function
 
 ## Validation checklist before showing TTB
 

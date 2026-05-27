@@ -221,15 +221,21 @@ decisions in the order they happened:
 
 ### Latency vs accuracy on the hybrid path
 
-The current hybrid path runs Modal Qwen v2 in parallel with Anthropic
-Haiku via `asyncio.gather`. Warm latency: ~5–7 s (dominated by Haiku's
-~5 s round-trip, since Modal v2 runs concurrently). This meets the PRD's
-≤5 s P95 target with cold-start exception documented.
+The current hybrid path runs three concurrent calls under `asyncio.gather`:
+Modal Qwen v2 (4 PII fields), Anthropic Haiku (ABV / Net / Warning text),
+and Modal Tesseract (deterministic warning bbox + EXIF DPI). Warm latency
+~5 s on small synthetic labels, ~6 s on dense TTB-live scans — Qwen-on-
+A10G is the floor at ~5 s warm (measured directly). Cold-start path
+returns `extractorSource: "haiku-fallback"` in ~9 s when Modal Qwen
+exceeds the 8 s budget; Haiku reads all 6 fields in that case and
+Tesseract still provides the bbox/DPI overlay.
 
-A pure-Modal path (Qwen v2 only) would be ~3-5 s warm but missing 3
-fields. A pure-Haiku path is 5-7 s but misses v2's accuracy on the 4
-trained fields. The hybrid is the only configuration that hits both
-latency and accuracy bars simultaneously.
+A pure-Modal path (Qwen v2 only, no commodity model) is ~5 s warm but
+needs Tesseract regex to cover ABV / Net / Warning — accurate enough
+for clean scans, lower-precision on dense ones. A pure-Haiku path is
+~3-5 s warm but misses v2's accuracy on the 4 trained fields and lacks
+the Treasury-defensible privacy boundary. The shipped hybrid hits the
+latency, accuracy, and privacy targets simultaneously.
 
 ### Modal cost discovery (Day 5)
 
@@ -246,13 +252,23 @@ Hobby tier, decorator API), RunPod (cheapest per-second), or Azure ML
 (FedRAMP target) are equivalent platforms — the `serve_qwen_v2.py`
 deploy script ports to any of them.
 
-### Type-size check (27 CFR 16.22)
+### Type-size check (27 CFR 16.22) — now deterministic
 
 Earlier DESIGN.md marked this "out of scope — digital images have no
 DPI reference." Day 3 added a Tesseract bounding-box reader + EXIF DPI
-fallback that **closes this gap when DPI is available** (the TTB scrape
-publishes DPI on ~51% of labels). The check gracefully degrades to "not
-assessable" when DPI is missing, matching the documented limitation.
+fallback that closed the gap when DPI was available, but the check
+silently skipped for the ~50% of labels without EXIF DPI.
+
+A later round moved Tesseract to its own CPU-only Modal container
+(`ttb-tesseract`) so it runs in parallel with Qwen on the warm path,
+and made the check **deterministic every time**: EXIF DPI when
+present, the 300-DPI TTB submission standard when not. The result is
+a three-band verdict: measurements ≥0.9× threshold pass clean; 0.5-
+0.9× pass with a `fontSizeAdvisory` (likely scan-resolution artefact —
+TTB scans don't reliably preserve physical print resolution); <0.5×
+hard-flag as `fontSize`. The `fontSizeMm` and `fontSizeDpiSource`
+fields on the response surface the measurement and its provenance to
+the agent.
 
 ---
 

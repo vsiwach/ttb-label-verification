@@ -80,7 +80,7 @@ THE API CONTRACT (the future backend will implement this exactly; for now a mock
 - POST /api/verify-batch -> input array of images + optional applicationData ; output array of per-item results (or a jobId + polling).
 - VerificationResult = {
     fields: Array<{ fieldName, declaredValue, extractedValue, status: 'match'|'likely'|'flag', confidence: number (0–1), evidenceCropUrl?: string, regulationCite?: string }>,
-    governmentWarning: { present: boolean, verbatimMatch: boolean, casingBoldOk: boolean, fontSizeOk: boolean, contrastOk: boolean, separateAndApart: boolean, detectedText: string, deviations: Array<{ type, message }>, regulation: '27 CFR 16.21/16.22' },
+    governmentWarning: { present: boolean, verbatimMatch: boolean, casingBoldOk: boolean, fontSizeOk: boolean, fontSizeMm?: number | null, fontSizeDpiSource?: 'exif' | 'assumed' | null, contrastOk: boolean, separateAndApart: boolean, detectedText: string, deviations: Array<{ type, message }>, regulation: '27 CFR 16.21/16.22' },
     imageQuality: { score: number (0–1), legible: boolean, note?: string }
   }
 

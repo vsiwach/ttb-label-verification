@@ -33,9 +33,10 @@ real-world COLA review behavior where the regulation is silent.
 | **Net contents** | Same volume after parsing to mL — within 2% on a standard fill (50, 100, 187, 200, 250, 330, 355, 375, 500, 700, 720, 750, 1000, 1500, 1750, 3000 mL; 12, 16 FL OZ etc.), 5% otherwise | 5-10% delta — possible misfill, agent verifies | >10% delta — substantive content difference |
 | **Bottler name/address** | Label line CONTAINS the declared bottler OR the registered brand — extra detail (address, plant info) is informational, not violation | Brand-normalized similarity | Wholly different business entity |
 | **Country of origin** | Country name appears as a word after stripping multilingual prefixes (`Product of / Produit de / Hecho en / Prodotto in / Erzeugnis aus / Feito em`) including dual-language displays; native aliases (`italia ≡ italy`) | Similarity match | Different country |
-| **Government Warning verbatim** | Exact match after OCR-noise normalization (whitespace, punctuation spacing, hyphenation), case-insensitive | Near-verbatim (≥95% similarity — single-char OCR slip) → records `verbatimMatch=True` + `near_verbatim` advisory deviation | Below 95% similarity — substantive paraphrase |
-| **Warning casing/bold** | `casing_all_caps=True AND body_bold=False` | — | `casing_all_caps=False` OR body bolded |
-| **Warning font size** | Measured height ≥ 27 CFR 16.22 minimum (1mm/2mm/3mm by container) | Unmeasurable from a single image — "please confirm manually" + threshold cited | Measured below minimum |
+| **Government Warning verbatim** | Exact match after anchor extraction (`GOVERNMENT WARNING:` … `HEALTH PROBLEMS.`) + OCR-noise normalization (whitespace, punctuation spacing, hyphenation including space-broken `AL- COHOLIC`), case-insensitive | Near-verbatim (≥85% similarity — OCR slips, garbled prefix, broken hyphens) → records `verbatimMatch=True` + `near_verbatim` advisory deviation | Below 85% similarity — substantive paraphrase |
+| **Warning casing/bold** | `casing_all_caps=True` (positive evidence — heading appears in detected text OR model self-reports caps) | Body-bold report → advisory only (vision-language models often misread all-caps body as bold) | Heading not all-caps |
+| **Warning font size** | Measured height ≥ 27 CFR 16.22 minimum × 0.9 (10% bbox-measurement tolerance) | Measurement in the 50-90% band of threshold → advisory pass (likely scan-resolution artefact; TTB scans don't reliably preserve physical print resolution) | Below 50% of threshold — clearly substandard even accounting for scan-resolution slop |
+| **Warning contrast / separate-and-apart** | Model self-reports `True` (default) | Model self-reports `False` → advisory deviation only; bucket does not downgrade. Vision-language self-reports on contrast/separation false-positive too often to be a hard gate | — |
 
 ### Verdict-bucket logic
 
@@ -43,7 +44,7 @@ real-world COLA review behavior where the regulation is silent.
 |---|---|---|---|
 | **Critical** | Substantive non-compliance with 27 CFR | `flag` → `needs-review` | Mandatory field absent from label; Government Warning paraphrased or missing |
 | **Material** | Substantively wrong declared value beyond regulatory tolerance | `flag` → `needs-review` | Net contents >10% off; ABV outside the wider agent-review band; brand AND product both differ from label |
-| **Borderline** | Within regulatory or border tolerance | `likely` → `needs-confirm` (agent verifies in seconds) | ABV 0.3-1.5% off; net contents 5-10% off; near-verbatim warning with single-char OCR slip |
+| **Borderline** | Within regulatory or border tolerance | `likely` → `needs-confirm` (agent verifies in seconds) | ABV 0.3-1.5% off; net contents 5-10% off; near-verbatim warning with OCR slip or broken hyphen |
 | **Informational** | Stylistic / format / multi-image realities | `match` → `auto-pass`-able | Brand in ALL CAPS; "KY" abbreviation; "Product of France" prefix; bottler line with extra address detail; class-type umbrella matching |
 
 **The pre-processing pipeline that makes this work** (it's where most of the
@@ -66,9 +67,12 @@ real-world COLA review behavior where the regulation is silent.
    `Produit de / Hecho en / Prodotto in / Erzeugnis aus / Feito em` plus
    `PRODUIT DE FRANCE PRODUCT OF FRANCE`-style dual displays. Native-language
    country aliases (`italia ≡ italy`, `españa ≡ spain`).
-7. **Government Warning near-verbatim** — ≥95% character similarity is
-   `verbatimMatch=True` with a `near_verbatim` advisory. Real paraphrase
-   (substantive wording change) still flags below 0.95.
+7. **Government Warning near-verbatim** — ≥85% character similarity is
+   `verbatimMatch=True` with a `near_verbatim` advisory. Anchor extraction
+   at `GOVERNMENT WARNING:` and clip at `HEALTH PROBLEMS.` strip leading
+   and trailing OCR junk before the similarity ratio, so noise outside
+   the warning region can't drag the score down. Real paraphrase
+   (substantive wording change inside the warning) still flags below 0.85.
 8. **Empty declared field** (COLA form omits bottler etc.) → `match` with
    transparent note. No false flag from missing form data.
 9. **Low-confidence extraction** (<0.60) demotes `match` → `likely` so a
@@ -150,13 +154,13 @@ at least `likely`.
 | Check | Engine logic | Cite |
 |---|---|---|
 | **Presence** | `present` = false → `needs-review` with citation | 16.21 |
-| **Verbatim wording** | Normalized text (whitespace collapse, line-break-hyphen reattach, OCR punctuation-spacing tightening) case-insensitively compared to the canonical text | 16.21 |
-| **Near-verbatim wording (≥95% similarity)** | Detected text is *almost* canonical — typically a single-character OCR slip (missing comma, "operte" for "operate") rather than paraphrase. The engine sets `verbatimMatch=True` with a `near_verbatim` advisory deviation so the agent verifies visually; the verdict isn't auto-promoted to needs-review for a transcription slip. Real paraphrase (substantive wording change) drops below 0.95 and produces `verbatim=False`. | 16.21 |
-| **`GOVERNMENT WARNING` in all caps** | `casing_all_caps=False` → `casingBoldOk=False`, deviation type `casing` | 16.22 |
-| **Body NOT bold** | `body_bold=True` → deviation type `casing` | 16.22 |
-| **Type-size threshold by container** | `≤237 mL → 1 mm; ≤3 L → 2 mm; >3 L → 3 mm`. If measurable and below threshold → `fontSize` deviation; if **not measurable** → `fontSize=False` **with explicit "could not be measured; please confirm manually" note** (route to human review, not a hard reject) | 16.22 |
-| **Contrast** | When the extractor reports `contrast_ok=False` → deviation type `contrast` | 16.22 |
-| **Separate and apart** | When the extractor reports `separate_and_apart=False` → deviation type `separation` | 16.22 |
+| **Verbatim wording** | Anchor-extracted (clip at `GOVERNMENT WARNING:` … `HEALTH PROBLEMS.`) + normalized text (whitespace collapse, line-break and space-broken hyphen reattach, OCR punctuation-spacing tightening) case-insensitively compared to the canonical text | 16.21 |
+| **Near-verbatim wording (≥85% similarity)** | Detected text is *almost* canonical — OCR slips, garbled prefixes, broken hyphens — rather than paraphrase. The engine sets `verbatimMatch=True` with a `near_verbatim` advisory deviation so the agent verifies visually; the verdict isn't auto-promoted to needs-review for a transcription slip. Real paraphrase (substantive wording change inside the anchored region) drops below 0.85 and produces `verbatim=False`. | 16.21 |
+| **`GOVERNMENT WARNING` in all caps** | `casing_all_caps=False` AND heading not literally present in detected text → `casingBoldOk=False`, deviation type `casing` | 16.22 |
+| **Body NOT bold** | `body_bold=True` → advisory deviation `bodyBoldAdvisory`. NOT a hard gate — vision models confuse all-caps text with bold weight at warning-text size, so this is informational only. | 16.22 |
+| **Type-size threshold by container** | `≤237 mL → 1 mm; ≤3 L → 2 mm; >3 L → 3 mm`. **Always runs** — DPI from EXIF when present, falls back to the 300-DPI TTB submission default with `fontSizeDpiSource='assumed'`. Three-band verdict: measurement ≥0.9× threshold passes clean; 0.5-0.9× passes with `fontSizeAdvisory`; <0.5× hard-flags as `fontSize`. The advisory band exists because scan DPI doesn't reliably preserve physical print resolution. | 16.22 |
+| **Contrast** | When extractor reports `contrast_ok=False` → advisory deviation `contrastAdvisory`. NOT a hard gate — vision-language self-reports on contrast are unreliable. | 16.22 |
+| **Separate and apart** | When extractor reports `separate_and_apart=False` → advisory deviation `separationAdvisory`. NOT a hard gate — same reason. | 16.22 |
 | **All-caps body** (printed verbatim) | Compliant — TTB requires fixed wording, not fixed case for the body | 16.21 |
 | **OCR-introduced whitespace** (`"WARNING :"`, `"( 1 )"`) | Normalized away before comparison | — |
 
@@ -165,7 +169,7 @@ at least `likely`.
 | Case | Behavior |
 |---|---|
 | **Bold weight of `GOVERNMENT WARNING` heading** | Not gated on (current model can't reliably detect bold from a single rendered image); the heading must be ALL CAPS, and the body must NOT be bold — those two are gated. The bold of the heading itself is **flagged for visual confirmation by the agent**. |
-| **Exact font-size measurement in mm** | When unmeasurable, `fontSizeOk=False` with a "please confirm manually" deviation — explicit route to human review with the relevant threshold cited |
+| **Exact font-size measurement in mm** | Now deterministic: `fontSizeMm` always computed (Tesseract bbox + EXIF DPI or 300-DPI default). The 50-90% advisory band routes scan-resolution artefacts to "confirm visually" without hard-flagging; <50% still produces a hard `fontSize` deviation. |
 | **Very subtle spelling/punctuation errors** that survive OCR normalization (e.g. a single missing comma a TTB reviewer caught) | The verbatim check may pass; the engine cannot guarantee detection of single-character TTB findings. Agents reviewing the result still see the full detected text for comparison. |
 | **Multi-image labels where the warning lives on a different panel than the one uploaded** | Use the back/strip image (build_dataset.py picks images whose OCR contains "GOVERNMENT WARNING"). When only one image is provided and the warning isn't on it, `present=False` → routed to `needs-review`. |
 
@@ -206,9 +210,10 @@ Documented here so the agent isn't surprised. These should be added to the engin
 | Field text values | Compared via the 3-state matcher; never trusted blindly |
 | Per-field confidence scores | < 0.60 demotes "match" → "likely" so a confident-but-wrong extraction can't auto-pass |
 | Warning text transcription | Engine does the verbatim comparison; model is told to NEVER auto-correct paraphrase |
-| `casing_all_caps`, `body_bold`, `contrast_ok`, `separate_and_apart` | Gated booleans on the warning verdict |
+| `casing_all_caps` | Gated boolean — must be `True` (or heading literal in detected text) for `casingBoldOk` to pass |
+| `body_bold`, `contrast_ok`, `separate_and_apart` | NOT gated — surface as `bodyBoldAdvisory` / `contrastAdvisory` / `separationAdvisory` only. Vision-language self-reports on these are unreliable. |
 | `heading_bold` | Recorded but NOT gated (bold can't be reliably detected from a single image) |
-| `approx_font_mm` | When present → numeric threshold check; when `null` → `fontSizeOk=False` with explicit "please confirm" note |
+| Warning bbox + EXIF DPI | Three-way fan-out: Modal Tesseract container provides bbox (back-scaled to original-image pixels) + EXIF DPI; rule engine pairs them and runs the deterministic three-band 16.22 verdict |
 | `image_quality.score` | Overridden by the server-side Pillow measurement when available |
 
 ---

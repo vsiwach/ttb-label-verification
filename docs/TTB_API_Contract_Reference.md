@@ -65,9 +65,13 @@ export interface GovernmentWarningAnalysis {
   casingBoldOk: boolean;
   /** Warning text meets the minimum type size for the container. */
   fontSizeOk: boolean;
-  /** Adequate contrast against background. */
+  /** Measured Government Warning body height in mm; null when Tesseract did not find a bbox. */
+  fontSizeMm?: number | null;
+  /** Where the DPI used for the mm conversion came from. `'assumed'` means EXIF was absent and the 300-DPI submission baseline was used. */
+  fontSizeDpiSource?: 'exif' | 'assumed' | null;
+  /** Adequate contrast against background. (Advisory-only — always true in payload; concerns surface as a deviation.) */
   contrastOk: boolean;
-  /** Warning is separate and apart from other label copy. */
+  /** Warning is separate and apart from other label copy. (Advisory-only — always true in payload; concerns surface as a deviation.) */
   separateAndApart: boolean;
   /** Raw OCR text from the warning region. */
   detectedText: string;
@@ -75,6 +79,13 @@ export interface GovernmentWarningAnalysis {
   deviations: Array<{ type: string; message: string }>;
   /** Always this constant — included for downstream filtering / display. */
   regulation: '27 CFR 16.21/16.22';
+}
+
+/** Per-request timing + provenance metadata returned alongside VerificationResult. */
+export interface TimingInfo {
+  totalMs: number;
+  /** Which extractor produced the fields. `'modal+haiku'` is the warm three-way fan-out; `'haiku-fallback'` means Modal Qwen exceeded MODAL_TIMEOUT and Haiku alone covered all six fields. */
+  extractorSource?: 'modal+haiku' | 'haiku-fallback' | 'cloud' | 'mock' | string;
 }
 
 /** Image-quality signal. Drives the "re-upload a sharper image" prompt. */

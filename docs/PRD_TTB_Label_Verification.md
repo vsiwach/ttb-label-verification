@@ -150,7 +150,7 @@ The prototype is a thin, well-separated three-tier system.
 
 **API (lightweight backend).** A small service that receives the downscaled image plus the application data, calls the vision LLM with a static cached system prompt requesting a fixed JSON schema, **streams** the extraction back to the client as fields resolve, runs the **deterministic rules engine**, and returns per-field verdicts with citations. For batch, it **fans out concurrent calls** with a bounded worker pool and streams per-label completions to the dashboard.
 
-**Inference (cloud vision LLM).** A fast multimodal model (default **Gemini 2.5 Flash** or **Claude Haiku 4.5**) accepting an image and returning structured JSON. The model only ever **extracts and scores**; it never renders the legal verdict.
+**Inference (privacy-focused hybrid).** Three-way parallel fan-out: (1) **Modal Qwen v2 LoRA** on a container we control reads the 4 trained PII-class fields (brand, class, bottler, country of origin) — Treasury-defensible on-prem-equivalent boundary, weights downloadable from our GitHub release for independent validation; (2) **Anthropic Claude Haiku 4.5** is the auxiliary commodity model for the public-text fields only (the 27 CFR 16.21 verbatim Government Warning text, plus ABV and net contents — small public values with no PII classification); (3) **Modal Tesseract** CPU container provides the deterministic warning bounding-box + EXIF DPI for the 27 CFR 16.22 type-size check. Each model only ever **extracts and scores**; none of them renders the legal verdict. The hybrid is deliberate: PII-class fields stay inside our infrastructure boundary, the public-text fields use a fast commodity model since there is nothing private to protect on text that 27 CFR mandates verbatim.
 
 **Data flow (single label).** Agent selects an image → client downscales to ~2 MP and uploads with the application fields → API issues one structured-extraction call with prompt caching → model streams a JSON object of fields + per-field confidence + the Government Warning text/format observations → API runs the rules engine: it normalizes each field, compares to the application data, applies the 27 CFR checks, and assigns GREEN/AMBER/RED with a citation → API streams verdicts + evidence crops to the client → agent reviews, confirms/overrides, commits the auto-drafted log. Nothing is persisted after the session.
 
@@ -162,7 +162,7 @@ Production keeps the identical client and rules engine and swaps only the infere
 
 The recommended production inference target is **Azure OpenAI Service in Azure Government** (FedRAMP High, DoD IL4/5). This is the best fit because TTB/Treasury has been **on Azure since 2019** and already cleared an 18-month FedRAMP path — inference moves **inside** the existing accreditation boundary rather than out to the open internet, which is precisely what resolves the firewall problem that killed the prior vendor. Equivalent alternatives are **Anthropic Claude via Amazon Bedrock GovCloud** (FedRAMP High + IL4/5) and **Google Gemini on Vertex AI Assured Workloads** (FedRAMP High). Government regions typically lag frontier models by about one tier, so we design for "one tier behind" and validate accuracy on that tier.
 
-For the most restrictive environments, an **air-gapped contingency** runs **Azure AI Document Intelligence disconnected containers** for OCR plus a **self-hosted vision model** for field mapping, all inside the agency network. Plain OCR alone (Tesseract, PaddleOCR) cannot do field-mapping and verbatim warning analysis, so OCR is paired with a self-hosted or FedRAMP LLM. This path trades some accuracy and ops overhead for full network isolation and is the fallback if even Azure Government egress is disallowed.
+For the most restrictive environments, an **air-gapped contingency** drops the Anthropic Haiku side-channel entirely and runs **Modal Qwen v2 LoRA + Tesseract OCR** for every field (Tesseract regex covers ABV, net contents, and the verbatim warning when Haiku is unavailable). This is the realized form of what the original PRD described as a self-hosted vision model paired with OCR — the LoRA weights are agency-downloadable, no FedRAMP LLM dependency in the data path. Trades some warning-text accuracy on dense layouts for full network isolation; the fallback if even Azure Government egress is disallowed.
 
 **Model comparison.**
 
@@ -174,7 +174,7 @@ For the most restrictive environments, an **air-gapped contingency** runs **Azur
 | **Claude Sonnet 4.6** | $3 / $15 | 2–4 s | Bedrock GovCloud (High, IL4/5) |
 | **Gemini 2.5 Pro** | higher | 3–5 s | Vertex AI Assured Workloads (High) |
 
-Default recommendation: **Gemini 2.5 Flash or Claude Haiku 4.5** for the latency and cost wins, with a heavier model (Sonnet / Gemini Pro) available as an escalation tier for low-confidence or contested labels.
+Default recommendation: the **shipped privacy-focused hybrid** — Modal Qwen v2 LoRA for the 4 trained PII-class fields (zero outbound LLM calls for those), and Claude Haiku 4.5 only on the public-text fields (27 CFR 16.21 verbatim warning, ABV, net contents). A heavier model (Sonnet / Gemini Pro) remains available as an escalation tier for low-confidence or contested labels.
 
 ---
 
