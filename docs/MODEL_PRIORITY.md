@@ -22,16 +22,23 @@ likely to close that gap or unlock a different deployment advantage?
 
 ## Recommendation: train in this order
 
-### 1. Qwen2.5-VL-7B — first (highest accuracy ceiling, already shipping)
+### 1. Qwen2.5-VL-7B — first (highest accuracy ceiling, shipping in production)
 
-**Status**: trained, evaluated at 63.41% field accuracy (-6pp vs Claude),
-beats Claude on warning false-flag rate (+2pp). Modal deploy is ready.
+**Status**: v2 trained on TTB-stratified data; live in `INFERENCE_MODE=modal`
+as the LoRA half of a three-way fan-out (Modal Qwen v2 LoRA on A10G +
+Anthropic Haiku + Modal Tesseract CPU, all via `asyncio.gather`). Qwen
+extracts the 4 trained fields (brand / class / bottler / country); Haiku
+covers the public-text Government Warning verbatim plus ABV and net
+contents; Tesseract provides the deterministic bbox + EXIF DPI for the
+27 CFR 16.22 size check. `MODAL_TIMEOUT=8s`; on Qwen timeout the
+backend falls back to Haiku full extraction + Tesseract overlay and
+surfaces `extractorSource: "haiku-fallback"`.
 
 **Next gain**: hand-curate 100-200 hard examples + retrain → expected
-field accuracy 63% → 75-80% (closes the rest of the gap).
+field accuracy headroom on the remaining gap.
 
-**Decision gate**: if `make eval-replay-qwen` rerun lands ≥70% field
-accuracy after training-data top-up, this is the production candidate.
+**Decision gate**: holdout re-eval lands ≥70% field accuracy after each
+training-data top-up.
 
 ### 2. InternVL3-2B BF16 — second (best speed-to-accuracy ratio)
 

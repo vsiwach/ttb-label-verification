@@ -1,7 +1,9 @@
-# Deployment Runbook — Qwen2.5-VL BF16 on Modal
+# Deployment Runbook — Qwen2.5-VL v2 + Tesseract on Modal
 
-End-to-end deployment of the BF16-trained Qwen LoRA as a production HTTPS
-endpoint. Total time: **~30 min** the first time, ~5 min for redeploys.
+End-to-end deployment of the two Modal services that back the production
+`INFERENCE_MODE=modal` fan-out: the BF16-trained Qwen v2 LoRA (GPU,
+A10G) and the deterministic Tesseract bbox + EXIF DPI service (CPU).
+Total time: **~30 min** the first time, ~5 min for redeploys.
 
 ## Prerequisites (one-time, ~10 min)
 
@@ -52,16 +54,20 @@ To verify:
 modal volume ls ttb-qwen-adapter
 ```
 
-## Step 2 — Deploy the inference app (~5 min first time, ~30 s subsequent)
+## Step 2 — Deploy the Qwen v2 inference app (~5 min first time, ~30 s subsequent)
 
 ```bash
-make modal-deploy
+make modal-deploy-v2
 ```
 
 Behind the scenes:
 ```
-modal deploy backend/modal_deploy/serve_qwen.py
+modal deploy backend/modal_deploy/serve_qwen_v2.py
 ```
+
+This is the production app (`ttb-qwen-extractor-v2`). `make modal-deploy`
+is still wired to the v1 `serve_qwen.py` for legacy / head-to-head eval;
+the live production stack uses v2.
 
 First deploy builds the Docker image (transformers, peft, torch — ~3 GB).
 Modal caches the image, so subsequent deploys are fast.
@@ -71,21 +77,45 @@ When done, Modal prints something like:
 ```
 ✓ App deployed in 287.5s! 🎉
 
-View Deployment: https://modal.com/apps/<your-user>/ttb-qwen-extractor
-Endpoint: https://<your-user>--ttb-qwen-extractor-extract-web.modal.run
+View Deployment: https://modal.com/apps/<your-user>/ttb-qwen-extractor-v2
+Endpoint: https://<your-user>--ttb-qwen-extractor-v2-extract-web.modal.run
 ```
 
 **Copy that endpoint URL.**
 
-## Step 3 — Wire the backend to call Modal
+## Step 3 — Deploy the Tesseract bbox + DPI service (~3 min first time)
+
+```bash
+modal deploy backend/modal_deploy/serve_tesseract.py
+```
+
+This is the `ttb-tesseract` CPU container — no GPU, no model. It returns
+the Government Warning bbox back-scaled to the original image pixels
+plus EXIF DPI (or null when absent — the backend then defaults to a
+300-DPI submission baseline and surfaces `fontSizeDpiSource: "assumed"`).
+
+Modal prints two endpoints — the `extract-web` URL is what the backend
+calls, and the health URL is what the UI uses to pre-warm the container.
+
+## Step 4 — Wire the backend to call both Modal services
 
 ```bash
 # Edit backend/.env (or create from backend/.env.example):
 echo "INFERENCE_MODE=modal" >> backend/.env
-echo "MODAL_ENDPOINT_URL=https://<your-user>--ttb-qwen-extractor-extract-web.modal.run" >> backend/.env
+echo "MODAL_ENDPOINT_URL=https://<your-user>--ttb-qwen-extractor-v2-extract-web.modal.run" >> backend/.env
+echo "MODAL_TESSERACT_URL=https://<your-user>--ttb-tesseract-extract-web.modal.run" >> backend/.env
+echo "MODAL_HEALTH_URL=https://<your-user>--ttb-qwen-extractor-v2-health-web.modal.run" >> backend/.env
+echo "MODAL_TIMEOUT=8" >> backend/.env
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> backend/.env   # Haiku is the hybrid layer
 ```
 
-## Step 4 — Run the backend locally pointed at Modal
+The backend fans out Qwen + Haiku + Tesseract via `asyncio.gather`
+(see `backend/app/extractors/modal_remote.py`). If Qwen exceeds
+`MODAL_TIMEOUT`, the backend falls back to Haiku's full extraction +
+Tesseract overlay and tags the response with
+`extractorSource: "haiku-fallback"`.
+
+## Step 5 — Run the backend locally pointed at Modal
 
 ```bash
 make serve-modal
@@ -100,7 +130,7 @@ Every /api/verify request goes:
 The local backend just routes HTTPS calls + runs the deterministic 27 CFR
 rules engine. No GPU needed locally.
 
-## Step 5 — Smoke test
+## Step 6 — Smoke test
 
 ```bash
 TEST_IMG=$(ls test/eval/data/images/*.webp | head -1)

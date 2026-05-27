@@ -519,8 +519,9 @@ Colab, scoring happens locally through the actual rules engine. See
 
 | Component | Where | Mode | Notes |
 |---|---|---|---|
-| Frontend + backend | Vercel (`ttb-label-verification-ebon.vercel.app`) | `INFERENCE_MODE=cloud` (Haiku) | Live, 5–7 s warm, all 7 checks |
-| Qwen v2 LoRA endpoint | not currently live | Modal deploy template ready | Validated separately on 200-row holdout — see headline result in README |
+| Frontend + backend | Vercel (`ttb-label-verification-ebon.vercel.app`) | `INFERENCE_MODE=modal` (Qwen v2 + Haiku + Tesseract fan-out) | Live, ~4.5-6 s warm, all 7 checks |
+| Qwen v2 LoRA endpoint | Modal (`ttb-qwen-extractor-v2`, A10G) | scale-to-zero, pre-warmed by UI heartbeat | Validated on 200-row holdout — see headline result in README |
+| Tesseract bbox endpoint | Modal (`ttb-tesseract`, CPU) | scale-to-zero | Returns warning bbox + EXIF DPI for the 16.22 type-size check |
 | Trained weights | [GitHub Release](https://github.com/vsiwach/ttb-label-verification/releases) | downloadable | v1 + v2 adapters + eval pack |
 
 The production target is the Modal/Qwen path: backend in `modal` mode →
@@ -535,9 +536,9 @@ by downloading the adapter from the GitHub Release and pointing
 **A. Public path (current Vercel live demo)**
 - Static React bundle on Vercel CDN
 - FastAPI as `@vercel/python` serverless function
-- `INFERENCE_MODE=cloud`, vision extraction via Anthropic Haiku
-- Privacy posture: label images traverse Anthropic API at inference time
-- Cost: ~$0–5/mo (Vercel free tier) + ~$1/1000 labels (Haiku)
+- `INFERENCE_MODE=modal`, three-way fan-out: Modal Qwen v2 LoRA (PII-class fields) + Anthropic Haiku (public-text warning + numerics) + Modal Tesseract (warning bbox/DPI)
+- Privacy posture: brand/class/bottler/country stay on Modal infra we control; the verbatim warning text (fixed by 27 CFR 16.21, public) plus ABV/net contents go to Haiku
+- Cost: ~$0–5/mo (Vercel free tier) + ~$0.001/req Modal + ~$0.001/req Haiku
 
 **B. Privacy-first path (Modal / Cerebrium / similar)**
 - Same React + FastAPI codebase
@@ -567,7 +568,7 @@ but **seven explicit divergences** are documented below — not hidden.
 |---|---|---|---|---|
 | F1 | Single-label upload, client-side downscale to ~2 MP | P0 | ✅ | [src/utils/downscaleImage.ts](src/utils/downscaleImage.ts) canvas resize + JPEG re-encode before upload |
 | F2 | Full-field extraction by beverage type, JSON schema, per-field confidence | P0 | ✅ | [backend/app/extractors/base.py](backend/app/extractors/base.py)::ExtractedField; per-field `confidence` on every output |
-| F3 | Government Warning verbatim + 16.22 formatting (CAPS, bold, type-size, contrast, separate-and-apart) | P0 | **⚠️ Partial** | [backend/app/rules/government_warning.py](backend/app/rules/government_warning.py) — verbatim, CAPS heading, contrast, separate-and-apart all verified. **Type-size NOT verified** (intentional, see N7 below) — a digital image lacks DPI/scale, so mm cannot be measured deterministically. Surfaced as a footer note in the UI panel. |
+| F3 | Government Warning verbatim + 16.22 formatting (CAPS, bold, type-size, contrast, separate-and-apart) | P0 | ✅ | [backend/app/rules/government_warning.py](backend/app/rules/government_warning.py) — verbatim, CAPS heading all gated. Type-size now deterministic via Modal Tesseract bbox + EXIF DPI (300-DPI default when absent, surfaced as `fontSizeDpiSource: "assumed"`); three-band verdict: ≥0.9×min pass, 0.5-0.9×min pass with `fontSizeAdvisory`, <0.5×min hard `fontSize` flag. Contrast and separate-and-apart are advisory-only (VLM self-reports are unreliable) and surface as `contrastAdvisory` / `separationAdvisory` deviations. |
 | F4 | 3-state matching (GREEN/AMBER/RED) with normalized comparison shown | P0 | ✅ | `status: match | likely | flag` + `FieldRow` displays normalized comparison + note |
 | F5 | Image-quality gate ("request a better image" instead of low-confidence extraction) | P0 | ✅ | [backend/app/image_pipeline.py](backend/app/image_pipeline.py)::assess_image — legibility score <0.55 routes to needs-review with note |
 | F6 | Decision actions, no dead ends (confirm/override/request image at every level) | P0 | ✅ | [src/components/DecisionPanel.tsx](src/components/DecisionPanel.tsx) — Approve / Reject / Request Image |
@@ -582,13 +583,13 @@ but **seven explicit divergences** are documented below — not hidden.
 
 | # | Requirement (PRD) | Status | Notes |
 |---|---|---|---|
-| N1 | ≤5 s P95 single-label, **first fields streamed <2 s**, 250-label batch <60 s | **⚠️ Partial** | Cloud Claude path: 8 s mean / 10 s p95 (over budget). Qwen LoRA local: 10.8 s mean (over budget; Modal+vLLM achieves 3-5 s — meets bar). **Streaming**: client.ts has streaming callbacks for the mock path; backend `/api/verify` returns a single JSON response (no SSE). PRD's streaming-first-field target is **not implemented on the real backend**. |
+| N1 | ≤5 s P95 single-label, **first fields streamed <2 s**, 250-label batch <60 s | **⚠️ Partial** | Modal three-way fan-out warm steady-state: ~4.5-6 s `totalMs` depending on image size (in band). UI pre-warm — `GET /health` on App mount + on every route change (60 s cooldown), plus a 4-min heartbeat while the tab is visible (under Modal's 5-min `scaledown_window`) and a re-ping on visibility change — keeps the container warm during a session. Modal kernel warmup runs one dummy 560×560 inference after `load_model()` via `@modal.enter()` so the first user request hits warm kernels. **Streaming**: client.ts has streaming callbacks for the mock path; backend `/api/verify` returns a single JSON response (no SSE). PRD's streaming-first-field target is **not implemented on the real backend**. |
 | N2 | Section 508 / WCAG 2.2 AA / USWDS / IDEA Act | **⚠️ Divergence** | Accessible by construction (icon+text status badges, keyboard nav, focus rings, ≥16 px body, ≥4.5:1 contrast, ARIA roles + live regions). **Built on Tailwind-style custom token system** ([src/styles/tokens.css](src/styles/tokens.css)), **not USWDS**. Formal Section 508 audit pending (PRD §13 Phase 1 item). |
 | N3 | No PII persistence, TLS, ephemeral in-memory | ✅ | No DB; ephemeral crop store 5-min TTL; cloud provider configured for zero-retention |
 | N4 | Graceful degradation; per-item batch failure isolation | ✅ | InferenceError → typed 502 with retry messaging; failed batch items return as `needs-review` with synthetic flag (verified in tests) |
 | N5 | Deterministic, audit-stable verdict logic | ✅ | Rules engine is pure Python, 91 unit tests, same input → same verdict (CI gate enforces 100% on synthetic fixtures) |
 | N6 | Inference behind interface (cloud → on-prem swap) | ✅ | `LabelExtractor` ABC + 6 interchangeable adapters; swap via `INFERENCE_MODE` env var |
-| N7 | **Type-size verification out of scope (documented limitation)** | **⚠️ Divergence** | 27 CFR 16.22 requires a minimum type size of 1 mm (≤237 mL containers), 2 mm (≤3 L), or 3 mm (>3 L) for the Government Warning. A digital image has no DPI/scale reference, so mm cannot be measured deterministically. Earlier prototype iterations relied on the model's self-reported `approx_font_mm`, which is a guess — it produced false flags on compliant labels and false passes on tiny print. **Honest fix:** the field is removed from `GovernmentWarningAnalysis` (no `fontSizeOk`); the rules engine no longer surfaces it. The GW panel footer says *"Not verified by this tool: minimum type size — requires a physical sample or a calibrated scan."* **Migration path:** when COLA Cloud or a TTB-side calibrated scanner pipeline starts attaching DPI metadata, promote this to a real check in `government_warning.py`; the contract addition is a single optional field. |
+| N7 | **Type-size verification: deterministic, with documented assumption when DPI is absent** | ✅ | 27 CFR 16.22 requires a minimum type size of 1 mm (≤237 mL containers), 2 mm (≤3 L), or 3 mm (>3 L) for the Government Warning. The Modal Tesseract container returns the warning bbox back-scaled to original-image pixels; DPI comes from EXIF when present, otherwise defaults to the 300-DPI submission baseline and is surfaced as `fontSizeDpiSource: "assumed"`. Verdict bands: ≥0.9×min pass clean; 0.5-0.9×min pass with `fontSizeAdvisory`; <0.5×min hard `fontSize` flag. Earlier prototype iterations relied on the VLM's self-reported `approx_font_mm`, which produced false flags on compliant labels — that path has been removed. |
 
 ### Architecture alignment (PRD §7)
 
@@ -596,7 +597,7 @@ but **seven explicit divergences** are documented below — not hidden.
 |---|---|
 | "React + Vite client" | ✅ React 18 + Vite + TypeScript |
 | "Lightweight backend, streams extraction back" | ⚠️ FastAPI backend implemented; **streaming NOT implemented** — returns single typed JSON. Client mock simulates streaming but real path is request/response. |
-| "Default Gemini 2.5 Flash or Claude Haiku 4.5" | ⚠️ Default in [backend/app/config.py](backend/app/config.py) is `claude-sonnet-4-6` (heavier, more capable, more expensive than PRD's recommendation). Easy to switch via `CLOUD_MODEL` env var. |
+| "Default Gemini 2.5 Flash or Claude Haiku 4.5" | ✅ Production cloud model is `claude-haiku-4-5` (matches PRD recommendation). Easy to switch via `CLOUD_MODEL` env var. |
 | "Prompt caching across batch" | ✅ Anthropic prompt caching enabled on system prompt + tool definition (see `cloud.py`) |
 | "LLM extracts, rules engine decides" | ✅ Strict separation enforced; AI never makes verdict, rules engine never calls AI |
 | "Inference behind interface so cloud → on-prem swap is backend-only" | ✅ 6 implementations of `LabelExtractor` ABC; same `ExtractedLabel` output across all |
