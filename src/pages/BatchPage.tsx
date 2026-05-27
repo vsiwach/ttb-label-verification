@@ -64,21 +64,42 @@ export default function BatchPage() {
   const [items, setItems]   = useState<BatchItemResult[]>([]);
   const [shared, setShared] = useState<ApplicationData | null>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [error, setError]   = useState<string | null>(null);
   // Auto-pass items still need agent confirmation — open by default so the
   // agent sees every item and isn't tempted to skip a bucket.
   const [autoPassOpen, setAutoPassOpen] = useState(true);
 
-  function handleFiles(list: File[]) { setFiles(prev => [...prev, ...list]); }
-  function clearFiles() { setFiles([]); setItems([]); setPhase('upload'); }
+  function handleFiles(list: File[]) {
+    // De-dupe by name+size so the picker doesn't enqueue the same sample twice
+    // if the user clicks "Add" repeatedly. Files from the dropzone are unique
+    // by construction (filesystem path); from the picker we keyed on sample id.
+    setFiles(prev => {
+      const seen = new Set(prev.map(f => `${(f as File).name}:${(f as File).size}`));
+      const next = [...prev];
+      for (const f of list) {
+        const key = `${f.name}:${f.size}`;
+        if (!seen.has(key)) { seen.add(key); next.push(f); }
+      }
+      return next;
+    });
+  }
+  function clearFiles() { setFiles([]); setItems([]); setPhase('upload'); setError(null); }
 
   async function startProcessing() {
     if (files.length === 0) return;
     setPhase('processing');
     setItems([]);
-    await verifyBatch(files, shared ?? undefined, (item) => {
-      setItems(prev => [...prev, item]);
-    });
-    setPhase('done');
+    setError(null);
+    try {
+      await verifyBatch(files, shared ?? undefined, (item) => {
+        setItems(prev => [...prev, item]);
+      });
+      setPhase('done');
+    } catch (e: any) {
+      setError(String(e?.message || e || 'unknown error'));
+      // Stay in processing phase so the Alert is visible alongside the
+      // "0 done" header. User can hit "New batch" to reset.
+    }
   }
 
   function openItem(item: BatchItemResult) {
@@ -132,18 +153,27 @@ export default function BatchPage() {
       )}
 
       {phase !== 'upload' && (
-        <Dashboard
-          phase={phase}
-          totalFiles={files.length}
-          items={items}
-          filter={filter}
-          setFilter={setFilter}
-          autoPassOpen={autoPassOpen}
-          setAutoPassOpen={setAutoPassOpen}
-          onOpenItem={openItem}
-          onReset={clearFiles}
-          onStartReview={startReview}
-        />
+        <>
+          {error && (
+            <div style={{ marginBottom: 16 }}>
+              <Alert variant="error" title="Batch processing failed">
+                {error}
+              </Alert>
+            </div>
+          )}
+          <Dashboard
+            phase={phase}
+            totalFiles={files.length}
+            items={items}
+            filter={filter}
+            setFilter={setFilter}
+            autoPassOpen={autoPassOpen}
+            setAutoPassOpen={setAutoPassOpen}
+            onOpenItem={openItem}
+            onReset={clearFiles}
+            onStartReview={startReview}
+          />
+        </>
       )}
     </div>
   );
@@ -269,9 +299,11 @@ function Dashboard({ phase, totalFiles, items, filter, setFilter, autoPassOpen, 
                   : `All ${totalFiles} labels processed`}
               </strong>
               <div style={{ color: 'var(--color-ink-muted)', fontSize: 14 }}>
-                {needsAction === 0
-                  ? `${counts['auto-pass']} auto-passed.`
-                  : `${needsAction} need attention · ${counts['auto-pass']} auto-passed.`}
+                {processing
+                  ? `Hitting Anthropic Haiku in parallel — typically ~6 s per label end-to-end. The dashboard fills in once all responses come back.`
+                  : needsAction === 0
+                    ? `${counts['auto-pass']} auto-passed.`
+                    : `${needsAction} need attention · ${counts['auto-pass']} auto-passed.`}
               </div>
             </div>
           </div>
