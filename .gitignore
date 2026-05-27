@@ -40,3 +40,4 @@ test/eval/uat_pack/
 test/eval/data/qwen_sft/
 test/eval/data/ttb_live/scrape.log
 .pipeline_state/
+.vercel

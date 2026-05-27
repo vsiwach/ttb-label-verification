@@ -515,9 +515,9 @@ function SamplePicker({ samples, error, loadingId, onPick }: SamplePickerProps) 
         </span>
       </div>
       <p style={{ margin: '0 0 8px', fontSize: 'var(--fs-14)', color: 'var(--color-ink-muted)' }}>
-        Real TTB-approved labels from the COLA Cloud free sample (CC0 — colacloud.us).
-        Pick one to load both the artwork and its application data. In production this
-        list comes from the TTB filing system.
+        Real TTB-approved labels from the public COLA registry. Pick one to load both
+        the artwork and its paired Form 5100.31 application data. In production this list
+        comes from the TTB filing system directly.
       </p>
       <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--color-ink-subtle)' }}>
         The verdict pill is a typical-output hint — Claude is non-deterministic,

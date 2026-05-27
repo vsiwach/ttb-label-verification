@@ -1,0 +1,50 @@
+# Vercel function bundle excludes — only ship what /api/index.py imports.
+
+# Heavy ML weights (Modal path only, not Vercel/Haiku)
+backend/models/
+backend/.venv/
+
+# Eval/training assets the function does not read.
+# (test/synthetic and test/eval/data/{cola_sample.csv,images/} ARE shipped — samples.py needs them.)
+test/eval/data/qwen_sft/
+test/eval/data/ttb_live/
+test/eval/data/ttb_live_test/
+test/eval/report*
+test/eval/qwen_report*
+test/eval/real_audit*
+test/eval/ttb_live_audit*
+test/eval/holdout*
+test/eval/uat_pack/
+test/eval/*.md
+test/eval/*.py
+test/eval/*.json
+test/manual/
+test/smoke/
+
+# Notebooks, scripts (not imported by the serverless function)
+notebooks/
+scripts/
+
+# Frontend source (Vite builds to dist/ which IS shipped)
+node_modules/
+
+# Build artifacts that aren't dist/
+tsconfig.tsbuildinfo
+tsconfig.node.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+
+# Backend ancillaries the function doesn't import
+backend/tests/
+backend/Dockerfile
+backend/SECURITY.md
+backend/README.md
+backend/requirements-sft.txt
+backend/modal_deploy/
+backend/pytest.ini
+
+# Editor/OS noise
+.DS_Store
+*.pyc
+__pycache__/
+.pytest_cache/

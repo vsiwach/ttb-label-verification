@@ -39,5 +39,11 @@ def get_extractor(brand_hint: str = "") -> LabelExtractor:
         return ModalRemoteExtractor(
             endpoint_url=settings.modal_endpoint_url,
             timeout=settings.modal_timeout,
+            # If an Anthropic key is set, Modal extraction runs in parallel
+            # with a Haiku call that fills the 3 fields v2 doesn't extract
+            # (Alcohol content, Net contents, Government Warning). Without
+            # the key, those fields come back empty (engine flags them).
+            anthropic_api_key=settings.anthropic_api_key,
+            cloud_model=settings.cloud_model,
         )
     raise InferenceError(f"Unknown INFERENCE_MODE={mode!r}")
