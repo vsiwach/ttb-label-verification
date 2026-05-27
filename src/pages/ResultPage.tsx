@@ -120,6 +120,21 @@ export default function ResultPage() {
     setLiveMessage(`${name} confirmed. Status changed to Match.`);
   };
 
+  /** Click handler for any Flag pill on the result view. Scrolls the
+   *  agent to the Decision panel (Approve / Reject / Request image)
+   *  and briefly outlines it so the next action is obvious. Previously
+   *  the pill was a passive label and clicking did nothing, which
+   *  agents found confusing — naturally they expect a flagged item
+   *  to have a clear next step. */
+  const scrollToDecision = () => {
+    const el = document.getElementById('decision-panel');
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.transition = 'box-shadow 240ms';
+    el.style.boxShadow = '0 0 0 3px var(--status-flag-border, #c0392b)';
+    setTimeout(() => { el.style.boxShadow = ''; }, 1400);
+  };
+
   const sortedFields = useMemo(
     () => [...fields].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]),
     [fields],
@@ -166,7 +181,7 @@ export default function ResultPage() {
       <p className="sr-only" role="status" aria-live="polite">{liveMessage}</p>
 
       {!error && (
-        <SummaryBar counts={counts} isStreaming={isStreaming} totalArrived={totalArrived} totalExpected={totalExpected} />
+        <SummaryBar counts={counts} isStreaming={isStreaming} totalArrived={totalArrived} totalExpected={totalExpected} onFlagClick={scrollToDecision} />
       )}
 
       {error && (
@@ -194,7 +209,12 @@ export default function ResultPage() {
 
           <div className="card card--flush" style={{ overflow: 'visible' }}>
             {sortedFields.map(f => (
-              <ResultFieldRow key={f.fieldName} field={f} onConfirm={() => confirmField(f.fieldName)} />
+              <ResultFieldRow
+                key={f.fieldName}
+                field={f}
+                onConfirm={() => confirmField(f.fieldName)}
+                onFlagClick={scrollToDecision}
+              />
             ))}
             {isStreaming && Array.from({ length: Math.max(0, totalExpected - totalArrived) }).map((_, i) => (
               <SkeletonRow key={`sk-${i}`} />
@@ -209,6 +229,7 @@ export default function ResultPage() {
           )}
 
           {result.governmentWarning && result.imageQuality && (
+            <div id="decision-panel" style={{ borderRadius: 'var(--radius)' }}>
             <DecisionPanel
               result={{
                 fields: result.fields,
@@ -218,6 +239,7 @@ export default function ResultPage() {
               applicationData={applicationData}
               streamingDone={isDone}
             />
+            </div>
           )}
         </section>
       </div>
@@ -225,11 +247,12 @@ export default function ResultPage() {
   );
 }
 
-function SummaryBar({ counts, isStreaming, totalArrived, totalExpected }: {
+function SummaryBar({ counts, isStreaming, totalArrived, totalExpected, onFlagClick }: {
   counts: { match: number; likely: number; flag: number };
   isStreaming: boolean;
   totalArrived: number;
   totalExpected: number;
+  onFlagClick?: () => void;
 }) {
   const { match, likely, flag } = counts;
   let title: string;
@@ -265,7 +288,7 @@ function SummaryBar({ counts, isStreaming, totalArrived, totalExpected }: {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
         {match  > 0 && <StatusBadge status="match" />}
         {likely > 0 && <StatusBadge status="likely" />}
-        {flag   > 0 && <StatusBadge status="flag" />}
+        {flag   > 0 && <StatusBadge status="flag" onClick={onFlagClick} actionLabel="Jump to decision panel" />}
       </div>
     </div>
   );
@@ -428,7 +451,15 @@ function ImageQualityMeter({ quality, loading }: { quality: ImageQuality | null;
   );
 }
 
-function ResultFieldRow({ field, onConfirm }: { field: LiveField; onConfirm: () => void }) {
+function ResultFieldRow({ field, onConfirm, onFlagClick }: {
+  field: LiveField;
+  onConfirm: () => void;
+  /** Optional handler for clicks on a Flag pill. Parent typically
+   *  scrolls to and flashes the Decision panel so the agent's next
+   *  step (Reject / Request image / override) is reachable in one
+   *  click instead of just seeing a passive red badge. */
+  onFlagClick?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const evidenceId = `evid-${field.fieldName.replace(/\W+/g, '-').toLowerCase()}`;
 
@@ -450,7 +481,19 @@ function ResultFieldRow({ field, onConfirm }: { field: LiveField; onConfirm: () 
               </div>
             )}
           </div>
-          <StatusBadge status={field.status} />
+          <StatusBadge
+            status={field.status}
+            onClick={
+              field.status === 'flag'   ? onFlagClick
+              : field.status === 'likely' && !field._wasConfirmed ? onConfirm
+              : undefined
+            }
+            actionLabel={
+              field.status === 'flag'   ? 'Jump to decision panel'
+              : field.status === 'likely' ? 'Confirm this likely match'
+              : undefined
+            }
+          />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {field.status === 'likely' && !field._wasConfirmed && (
               <Button variant="secondary" icon={IconCheck} onClick={onConfirm}>Confirm</Button>
