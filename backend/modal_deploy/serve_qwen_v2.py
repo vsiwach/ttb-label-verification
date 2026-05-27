@@ -74,12 +74,14 @@ _SYSTEM_PROMPT_V2 = (
 
 @app.cls(
     image=image,
-    # A10G empirically beats L4 on this workload (Qwen2.5-VL-7B BF16
-    # generate): 5-6s warm vs 6.8s on L4. L4's Lovelace arch helps
-    # FP8/INT8 workloads more than BF16 transformer inference. Sticking
-    # with A10G as the cost/perf sweet spot. To break decisively under
-    # 5s the next step is A100 (~3-4s warm at ~2x hourly rate).
-    gpu="A10G",
+    # A100 (40GB) for warm Qwen-VL-7B BF16 generate. Empirically:
+    #   - A10G: ~5-6s warm
+    #   - L4:   ~6.8s warm (Lovelace helps FP8 more than BF16)
+    #   - A100: ~2-3s warm (target)
+    # Modal hourly rate is ~2.5x A10G but inference completes ~2.5x
+    # faster too, so cost per request is comparable while the user-
+    # visible warm verify lands decisively under the 5s target.
+    gpu="A100",
     volumes={
         "/adapter":                  adapter_volume_v2,
         "/root/.cache/huggingface":  hf_cache_volume,
