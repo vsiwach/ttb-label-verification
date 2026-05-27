@@ -44,12 +44,26 @@ class GovernmentWarningAnalysis(BaseModel):
     detectedText: str
     deviations: list[WarningDeviation] = Field(default_factory=list)
     regulation: Literal["27 CFR 16.21/16.22"] = WARNING_REGULATION  # type: ignore[assignment]
-    # 27 CFR 16.22 minimum type size. Computed deterministically from the
-    # extractor's warning bounding box + the image's DPI metadata, when
-    # both are available. None when the inputs are missing (phone photos
-    # without DPI, or extractor didn't return a bbox) — the agent
-    # confirms manually in that case.
+    # 27 CFR 16.22 minimum type size. Computed deterministically every
+    # time: the extractor returns the warning bounding box, the image
+    # pipeline reads DPI from EXIF when present, and the rules engine
+    # falls back to a documented default DPI (TTB submission standard
+    # of 300) when EXIF doesn't carry it. The deterministic answer
+    # means the rules engine always produces a verdict instead of
+    # silently skipping — see fontSizeMm + fontSizeDpiSource for the
+    # measurement provenance.
     fontSizeOk: Optional[bool] = None
+    # Measured mm per line of warning body text. Optional only when the
+    # warning is missing entirely (no bbox to measure). The agent sees
+    # the actual number so they can sanity-check against the printed
+    # label without re-doing the math.
+    fontSizeMm: Optional[float] = None
+    # Provenance of the DPI used to convert pixels → mm:
+    #   "exif"    : DPI read from the JPEG/PNG header (authoritative)
+    #   "assumed" : EXIF missing; used a documented default. The agent
+    #               sees this in the deviation message and can request
+    #               a higher-resolution scan for compliance-grade work.
+    fontSizeDpiSource: Optional[Literal["exif", "assumed"]] = None
 
 
 class ImageQuality(BaseModel):
@@ -74,6 +88,13 @@ class TimingInfo(BaseModel):
     extractorMs: int
     rulesMs: int
     totalMs: int
+    # Which extractor combination actually served the request. Distinct
+    # from inferenceMode (the configured mode): on the modal path this
+    # is "modal+haiku" when Qwen returned in time, or "haiku-fallback"
+    # when Modal was cold and Haiku covered all six fields alone. Lets
+    # the UI surface "warming up — re-run for higher accuracy" without
+    # the user having to inspect logs.
+    extractorSource: Optional[str] = None
 
 
 class VerificationResult(BaseModel):

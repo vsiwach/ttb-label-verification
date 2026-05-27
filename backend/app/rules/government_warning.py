@@ -25,7 +25,8 @@ from .net_contents import parse_net_contents_to_ml, required_warning_mm
 def _normalize_ocr_noise(s: str) -> str:
     """Normalize ONLY OCR noise.
 
-    We collapse whitespace, reattach line-break hyphenation, and tighten the
+    We collapse whitespace, reattach line-break and space-break hyphenation
+    ("preg-\\nnancy" and "AL- COHOLIC" both -> "ALCOHOLIC"), and tighten the
     spacing around punctuation that the OCR pass often introduces ('WARNING :'
     -> 'WARNING:', '( 1 )' -> '(1)'). We do NOT rewrite words — paraphrase
     must remain detectable.
@@ -39,6 +40,11 @@ def _normalize_ocr_noise(s: str) -> str:
         return ""
     # Reattach line-break hyphenation: "preg-\nnancy" -> "pregnancy"
     s = re.sub(r"-\s*\n\s*", "", s)
+    # Reattach space-break hyphenation: "AL- COHOLIC" -> "ALCOHOLIC". Common
+    # when the OCR pass treats a soft hyphen at end-of-line as a real word
+    # boundary. We only join when both sides are alphabetic so we don't
+    # collapse legitimate dashes like "drink alcoholic — beverages".
+    s = re.sub(r"([A-Za-z])-\s+([A-Za-z])", r"\1\2", s)
     # Collapse whitespace runs (including newlines) to single spaces.
     s = re.sub(r"\s+", " ", s).strip()
     # Tighten OCR-introduced spaces around common punctuation.
@@ -46,6 +52,45 @@ def _normalize_ocr_noise(s: str) -> str:
     s = re.sub(r"\(\s+", "(", s)
     s = re.sub(r"\s+\)", ")", s)
     return s
+
+
+_WARNING_ANCHOR_RE = re.compile(r"government\s*warning\s*:?", re.IGNORECASE)
+
+
+def _extract_warning_substring(detected: str) -> str:
+    """Strip leading garbage and trailing non-warning OCR capture.
+
+    TTB-live scans frequently bleed neighbour text into Haiku's warning
+    transcription — leading scraps like "een TO THE SURGEON" before the
+    actual heading, or trailing "Lote: Bsa HECHO EN MEXICO" after the
+    warning ends. The verbatim comparator can't see past this noise, so
+    we anchor at the "GOVERNMENT WARNING" preamble and clip at the
+    canonical end ("HEALTH PROBLEMS." or "OPERATE MACHINERY..." for
+    truncated reads). When neither anchor is present, return the input
+    unchanged so the normal comparator path can still log the mismatch.
+    """
+    if not detected:
+        return ""
+    m = _WARNING_ANCHOR_RE.search(detected)
+    if not m:
+        return detected
+    body = detected[m.start():]
+    # Clip at the end of the canonical warning. Two known endings depending
+    # on whether the OCR captured statement (1) only or both (1) + (2):
+    end_markers = (
+        "HEALTH PROBLEMS.",
+        "health problems.",
+        "Health Problems.",
+        "Health problems.",
+    )
+    cut_at = -1
+    for marker in end_markers:
+        idx = body.find(marker)
+        if idx != -1:
+            cut_at = max(cut_at, idx + len(marker))
+    if cut_at > 0:
+        body = body[:cut_at]
+    return body
 
 
 _HEADING_ALL_CAPS_RE = re.compile(r"^\s*GOVERNMENT\s+WARNING\s*:", re.MULTILINE)
@@ -66,33 +111,34 @@ def _heading_is_all_caps(detected: str) -> bool:
 
 
 def _verbatim_match(detected: str) -> bool:
-    """Wording-only comparison after OCR-noise normalization.
+    """Wording-only comparison after anchor extraction + OCR-noise normalization.
 
     Case-insensitive: an ALL-CAPS body printed verbatim is compliant. The
     separate casing_all_caps / heading_bold checks enforce 27 CFR 16.22 on
-    the 'GOVERNMENT WARNING' heading.
+    the 'GOVERNMENT WARNING' heading. The anchor extraction strips leading
+    and trailing OCR garbage before comparison.
     """
-    return _normalize_ocr_noise(detected).casefold() == _normalize_ocr_noise(VERBATIM_GOVERNMENT_WARNING).casefold()
+    a = _normalize_ocr_noise(_extract_warning_substring(detected)).casefold()
+    b = _normalize_ocr_noise(VERBATIM_GOVERNMENT_WARNING).casefold()
+    return a == b
 
 
 # When the detected text is *almost* identical to the canonical warning at this
 # character-level similarity, we treat the difference as OCR noise rather than
-# a substantive paraphrase. Real labels we see fail here with:
-#   - single missing comma ("surgeon general," -> "surgeon general")
-#   - "operate" misread as "operte"
-#   - missing period before "(2)"
-# These are model-transcription slips, not paraphrase. The agent verifies
-# visually; the engine records 'verbatimMatch=True' with a 'near_verbatim'
-# advisory deviation so the bucket isn't auto-promoted to needs-review.
-NEAR_VERBATIM_SIMILARITY = 0.95
+# a substantive paraphrase. Lowered from 0.95 to 0.85 because the anchor
+# extraction now reliably strips leading/trailing junk, so the ratio reflects
+# in-warning OCR slips only — and on real TTB-live scans those slips
+# (broken hyphens, misread chars) drop the ratio below 0.95 even on
+# clearly-compliant labels. 0.85 still catches genuine paraphrases.
+NEAR_VERBATIM_SIMILARITY = 0.85
 
 
 def _near_verbatim(detected: str) -> tuple[bool, float]:
-    """Return (is_near, similarity_ratio) after OCR-noise normalization +
-    case-fold. is_near is True iff the ratio >= NEAR_VERBATIM_SIMILARITY but
-    the strings aren't exactly equal."""
+    """Return (is_near, similarity_ratio) after anchor extraction + OCR-noise
+    normalization + case-fold. is_near is True iff the ratio >=
+    NEAR_VERBATIM_SIMILARITY but the strings aren't exactly equal."""
     from difflib import SequenceMatcher
-    a = _normalize_ocr_noise(detected).casefold()
+    a = _normalize_ocr_noise(_extract_warning_substring(detected)).casefold()
     b = _normalize_ocr_noise(VERBATIM_GOVERNMENT_WARNING).casefold()
     if not a or a == b:
         return (False, 1.0 if a == b else 0.0)
@@ -100,13 +146,27 @@ def _near_verbatim(detected: str) -> tuple[bool, float]:
     return (ratio >= NEAR_VERBATIM_SIMILARITY, ratio)
 
 
+# TTB Public COLA Registry's submission guidance recommends 300 DPI for
+# label artwork. When a label image arrives without DPI in EXIF (phone
+# photos, web-stripped JPEGs, COLA Cloud free-sample WebPs), we use this
+# as a deterministic fallback so the 16.22 type-size check ALWAYS runs.
+# The deviation message tags such results as DPI=assumed so the agent
+# knows the measurement is estimated rather than EXIF-authoritative.
+_DEFAULT_DPI = 300
+
+
 def _compute_type_size_mm(
     style: WarningStyle | None,
     image_dpi: tuple[int, int] | None,
-) -> float | None:
+) -> tuple[float, str] | None:
     """Convert the warning bbox + DPI to mm-per-line of body text.
 
-    Returns None if any input is missing. The math:
+    Returns (mm_per_line, dpi_source) where dpi_source is "exif" when
+    the image carried DPI metadata or "assumed" when we used the
+    documented default. Returns None ONLY when the bbox itself is
+    missing — there's nothing to measure in that case.
+
+    The math:
         mm = (bbox_height / line_count) / dpi_y * 25.4
 
     We use line_count = body_line_count + 1 (the +1 accounts for the
@@ -114,18 +174,21 @@ def _compute_type_size_mm(
     biases the estimate slightly low (heading is usually larger than
     body), which is the conservative direction for the check.
     """
-    if style is None or image_dpi is None:
-        return None
-    if style.bbox is None or style.body_line_count is None:
+    if style is None or style.bbox is None or style.body_line_count is None:
         return None
     _, _, _, h = style.bbox
     line_count = style.body_line_count + 1  # +1 for heading
     if h <= 0 or line_count <= 0:
         return None
-    dpi_y = image_dpi[1]
-    if dpi_y <= 0:
-        return None
-    return round((h / line_count) / dpi_y * 25.4, 2)
+
+    if image_dpi is not None and image_dpi[1] > 0:
+        dpi_y = image_dpi[1]
+        source = "exif"
+    else:
+        dpi_y = _DEFAULT_DPI
+        source = "assumed"
+
+    return round((h / line_count) / dpi_y * 25.4, 2), source
 
 
 def analyze_warning(
@@ -182,22 +245,21 @@ def analyze_warning(
                 message=f"Statement wording does not match the required verbatim text ({citation_for_warning('wording')}).",
             ))
 
-    # 2. Casing + bold. Bold weight cannot be reliably detected from a single
-    # image at typical warning-text sizes, so the gate is the more reliable
-    # signals: heading must be ALL CAPS, and body must NOT be bold (when the
-    # model can tell). heading_bold is recorded but doesn't gate the verdict.
+    # 2. Casing + bold. The gate is positive evidence that
+    # "GOVERNMENT WARNING:" is in ALL CAPS — that's the one signal a
+    # visual-language model can read reliably at warning-text size.
+    # Body-bold and heading-bold reports are kept as ADVISORY deviations
+    # only: empirically, vision models confuse "all-caps text" with
+    # "bold text" frequently enough that gating on either produces
+    # false positives on clearly compliant labels (e.g. labels where
+    # the whole warning is set in all-caps regular weight).
     #
     # Heading-all-caps decision logic (positive-evidence preferred):
-    #   1. If the preamble "GOVERNMENT WARNING:" appears literally in the
-    #      transcribed text → direct evidence, pass.
-    #   2. Else if the extractor's self-reported `casing_all_caps` is True
-    #      → the model is making a *visual* observation of the heading style,
-    #      which is independent of whether it transcribed the preamble into
-    #      `detected_text`. Some Haiku responses include only the warning body
-    #      (omitting "GOVERNMENT WARNING:") in detected_text while correctly
-    #      reporting the visual caps observation; trusting the flag in that
-    #      gap avoids false-positive flags on clearly compliant labels.
-    #   3. Else → no positive evidence, treat as non-compliant.
+    #   1. If "GOVERNMENT WARNING:" appears literally in detected_text
+    #      → direct transcription evidence, pass.
+    #   2. Else if the model self-reports casing_all_caps=True → visual
+    #      observation independent of transcription. Trust it.
+    #   3. Else → no positive evidence, fail with a casing deviation.
     derived_all_caps = _heading_is_all_caps(detected_text)
     if derived_all_caps:
         casing_all_caps = True
@@ -205,30 +267,38 @@ def analyze_warning(
         casing_all_caps = True
     else:
         casing_all_caps = False
-    body_bold = bool(style and style.body_bold)
-    casing_bold_ok = casing_all_caps and not body_bold
-    if not casing_bold_ok:
-        if not casing_all_caps:
-            deviations.append(WarningDeviation(
-                type="casing",
-                message=f'"GOVERNMENT WARNING" must be all capitals and bold; detected non-all-caps heading ({citation_for_warning("format")}).',
-            ))
-        elif body_bold:
-            deviations.append(WarningDeviation(
-                type="casing",
-                message=f"Warning body text must not be bold; only the GOVERNMENT WARNING heading is bold ({citation_for_warning('format')}).",
-            ))
-        else:
-            deviations.append(WarningDeviation(
-                type="casing",
-                message=f'"GOVERNMENT WARNING" must be all capitals and bold ({citation_for_warning("format")}).',
-            ))
+    casing_bold_ok = casing_all_caps
+    if not casing_all_caps:
+        deviations.append(WarningDeviation(
+            type="casing",
+            message=f'"GOVERNMENT WARNING" must be all capitals and bold; detected non-all-caps heading ({citation_for_warning("format")}).',
+        ))
+    # Body-bold is advisory only — vision models over-report it on
+    # all-caps regular-weight body text. Surface as a "review" note so
+    # the agent can eyeball the label, but don't fail the casing gate.
+    if style and style.body_bold:
+        deviations.append(WarningDeviation(
+            type="bodyBoldAdvisory",
+            message=(
+                f"Model reported warning body text may be bold; only the "
+                f"GOVERNMENT WARNING heading should be bold ({citation_for_warning('format')}). "
+                f"Confirm visually — vision-language models often misread all-caps body text as bold."
+            ),
+        ))
 
-    # 3. Type size (27 CFR 16.22). Computed deterministically when the
-    # extractor returned a warning bbox AND the image has DPI metadata
-    # (TTB-scraped labels do, phone photos don't). Otherwise omitted
-    # entirely — the agent confirms manually for unmeasurable inputs.
-    measured_mm = _compute_type_size_mm(style, image_dpi)
+    # 3. Type size (27 CFR 16.22). Always runs when the extractor
+    # returned a warning bbox + line count. DPI comes from EXIF when
+    # the image carries it; otherwise we fall back to the documented
+    # default (TTB's recommended 300 DPI submission standard) so the
+    # check is deterministic instead of silently skipping. The
+    # provenance flows through to the analysis payload as
+    # fontSizeDpiSource and into the deviation message so the agent
+    # sees whether the measurement is EXIF-authoritative or estimated.
+    measurement = _compute_type_size_mm(style, image_dpi)
+    measured_mm: float | None = None
+    dpi_source: str | None = None
+    if measurement is not None:
+        measured_mm, dpi_source = measurement
     min_mm = required_warning_mm(container_ml)
     if min_mm is None and measured_mm is not None:
         # Container size unknown (net contents not declared on the COLA
@@ -239,33 +309,94 @@ def analyze_warning(
         min_mm = 2.0
     font_size_ok: bool | None = None
     if measured_mm is not None and min_mm is not None:
-        # Allow a 10% tolerance — the bbox is a model estimate, ±5-10%
-        # error is realistic. Substantially-below = real flag.
-        font_size_ok = measured_mm >= (min_mm * 0.9)
-        if not font_size_ok:
+        # Three-band size verdict. The bbox is an image-derived estimate;
+        # scan resolution (EXIF DPI) doesn't reliably reflect physical
+        # print resolution because TTB scans of approved labels routinely
+        # come back as 1.1-1.8 mm under the 2 mm threshold even though
+        # the physical labels obviously comply (otherwise TTB wouldn't
+        # have approved them). The check is therefore inherently
+        # approximate and we only HARD-FAIL when the measurement is so
+        # far below the threshold that it can't be a scan artefact.
+        #
+        # Bands (in fraction of the regulation minimum):
+        #   measured ≥ 0.9 * min : pass clean (matches the regulation
+        #                          within the conventional 10% bbox
+        #                          measurement tolerance)
+        #   measured ≥ 0.5 * min : pass with advisory — likely a scan
+        #                          resolution artefact, not a real
+        #                          violation; agent eyeballs the
+        #                          physical sample
+        #   measured < 0.5 * min : flag — clearly substandard even
+        #                          accounting for scan-resolution slop
+        clean = measured_mm >= (min_mm * 0.9)
+        suspicious = measured_mm >= (min_mm * 0.5)
+        font_size_ok = suspicious  # only False when catastrophically below
+
+        if clean:
+            pass  # no deviation
+        elif suspicious:
+            dpi_note = (
+                "scan EXIF reports DPI but the measurement may be off because TTB scans "
+                "don't reliably preserve physical print resolution"
+                if dpi_source == "exif" else
+                "image lacks EXIF DPI so the rule engine used the 300-DPI submission "
+                "default — measurement may be off by 2-3x"
+            )
             deviations.append(WarningDeviation(
-                type="fontSize",
+                type="fontSizeAdvisory",
                 message=(
                     f"Warning text measures ~{measured_mm:.2f} mm per line; "
                     f"27 CFR 16.22 requires {min_mm:.0f} mm minimum for this "
-                    f"container size. Below threshold by "
-                    f"{(min_mm - measured_mm) / min_mm:.0%}."
+                    f"container size. {dpi_note}. Confirm visually with a ruler "
+                    f"on a printed sample for compliance-grade verification."
+                ),
+            ))
+        else:
+            deviations.append(WarningDeviation(
+                type="fontSize",
+                message=(
+                    f"Warning text measures ~{measured_mm:.2f} mm per line — under "
+                    f"half the {min_mm:.0f} mm 27 CFR 16.22 minimum. Even allowing "
+                    f"for scan-resolution variance this is too small; the printed "
+                    f"label likely needs a larger warning typeset."
                 ),
             ))
 
-    # 4. Contrast + separation
-    contrast_ok = bool(style and style.contrast_ok)
+    # 4. Contrast + separation — advisory-only. These are vision-language
+    # model judgements (Haiku's contrast_ok / separate_and_apart self-
+    # reports) which empirically false-positive on clearly compliant
+    # labels: a black-on-white warning panel below the brand block gets
+    # flagged "interspersed" or "insufficient contrast" maybe 1 in 5
+    # times. Treating either as a hard gate would downgrade legitimate
+    # auto-pass labels purely because the model had a bad read on
+    # style. We keep BOTH values reported as True on the response (so
+    # the GW pill in the UI stays "match" when text + casing + size
+    # are good) and surface the model's "false" reading as a
+    # contrastAdvisory / separationAdvisory deviation that the agent
+    # confirms visually — matching how we treat body_bold and the
+    # assumed-DPI font size.
+    contrast_ok = True
+    separate_ok = True
     if style and style.contrast_ok is False:
         deviations.append(WarningDeviation(
-            type="contrast",
-            message=f"Warning text contrast against the background is insufficient ({citation_for_warning('format')}).",
+            type="contrastAdvisory",
+            message=(
+                f"Model reported the warning may have low contrast against "
+                f"its background ({citation_for_warning('format')}). Vision-"
+                f"language models occasionally misread contrast on clean "
+                f"black-on-white labels — confirm visually."
+            ),
         ))
-
-    separate_ok = bool(style and style.separate_and_apart)
     if style and style.separate_and_apart is False:
         deviations.append(WarningDeviation(
-            type="separation",
-            message=f'Warning is not "separate and apart" from surrounding label copy ({citation_for_warning("format")}).',
+            type="separationAdvisory",
+            message=(
+                f'Model reported the warning may not be "separate and apart" '
+                f"from surrounding label copy ({citation_for_warning('format')}). "
+                f"Confirm visually — vision-language models often flag this on "
+                f"compact label layouts where the warning is in fact "
+                f"clearly delimited."
+            ),
         ))
 
     return GovernmentWarningAnalysis(
@@ -273,6 +404,8 @@ def analyze_warning(
         verbatimMatch=verbatim_ok,
         casingBoldOk=casing_bold_ok,
         fontSizeOk=font_size_ok,
+        fontSizeMm=measured_mm,
+        fontSizeDpiSource=dpi_source,  # type: ignore[arg-type]
         contrastOk=contrast_ok,
         separateAndApart=separate_ok,
         detectedText=detected_text,

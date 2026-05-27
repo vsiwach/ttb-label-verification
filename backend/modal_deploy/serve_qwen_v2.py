@@ -27,10 +27,13 @@ from __future__ import annotations
 
 import modal
 
-# ── Image: ML stack + Tesseract for the warning bbox + DPI observation ──────
+# ── Image: ML stack only — Tesseract was dropped to cut warm latency.
+# Warning text + bbox + ABV + Net contents are now sourced from Haiku
+# (CloudExtractor) running in parallel on the Vercel side; image DPI
+# comes from the image_pipeline's EXIF read on the backend. Modal's job
+# is exclusively the 4 trained Qwen LoRA fields.
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("tesseract-ocr", "libtesseract-dev")
     .pip_install(
         "transformers==4.51.3",
         "peft>=0.13",
@@ -41,7 +44,6 @@ image = (
         "pillow",
         "fastapi[standard]",
         "numpy>=2.0,<2.2",
-        "pytesseract>=0.3.10",
     )
 )
 
@@ -72,6 +74,11 @@ _SYSTEM_PROMPT_V2 = (
 
 @app.cls(
     image=image,
+    # A10G empirically beats L4 on this workload (Qwen2.5-VL-7B BF16
+    # generate): 5-6s warm vs 6.8s on L4. L4's Lovelace arch helps
+    # FP8/INT8 workloads more than BF16 transformer inference. Sticking
+    # with A10G as the cost/perf sweet spot. To break decisively under
+    # 5s the next step is A100 (~3-4s warm at ~2x hourly rate).
     gpu="A10G",
     volumes={
         "/adapter":                  adapter_volume_v2,
@@ -107,13 +114,37 @@ class QwenExtractor:
         self.model = self.model.merge_and_unload()
         self.model.eval()
         self.processor = AutoProcessor.from_pretrained(BASE_MODEL)
-        print(f"[Modal] Ready. Free VRAM: "
+        print(f"[Modal] Loaded. Free VRAM: "
               f"{torch.cuda.mem_get_info()[0]/1e9:.1f} GB")
+
+        # Warm the GPU kernels with one throwaway inference so the FIRST
+        # real /extract request doesn't pay PyTorch's autotune + CUDA
+        # graph compile cost. Without this, the first warm request after
+        # a cold start still takes 8-10s while kernels JIT, and the
+        # Vercel side often times out (MODAL_TIMEOUT=8s) to Haiku-fallback
+        # on what should be a Qwen-warm call.
+        import io as _io
+        import time as _time
+        from PIL import Image as _Image
+        t_warm = _time.time()
+        try:
+            dummy = _Image.new("RGB", (560, 560), color=(240, 240, 240))
+            self._generate(dummy, "wine")
+            print(f"[Modal] Kernel warmup done in {_time.time() - t_warm:.2f}s. Ready.")
+        except Exception as e:
+            # Non-fatal — first real request will pay the compile cost,
+            # but the container is still functional.
+            print(f"[Modal] Kernel warmup failed (non-fatal): {e}")
 
     # ────────────────────────────────────────────────────────────────────
     def _prep_image(self, img):
         from PIL import Image
-        MAX_PIXELS = 1500 * 1024
+        # 1.0 M pixel cap (was 1.5 M). Each Qwen-VL visual patch is 28x28
+        # px, so ~1.0 M pixels = ~1280 patches = ~1280 vision tokens to
+        # prefill. Dropping from 1.5 M to 1.0 M cuts vision-encoder +
+        # prefill latency by ~30% on an A10G with negligible impact on
+        # text recognition for label-sized typography.
+        MAX_PIXELS = 1024 * 1024
         w, h = img.size
         if w * h > MAX_PIXELS:
             scale = (MAX_PIXELS / (w * h)) ** 0.5
@@ -140,7 +171,11 @@ class QwenExtractor:
         with torch.no_grad():
             out = self.model.generate(
                 **inputs,
-                max_new_tokens=384,
+                # 256 tokens fits the 4-field JSON schema with room to
+                # spare on a normal extraction; was 384 which left ~30%
+                # idle decode time at the tail. Cuts ~1-1.5 s off warm
+                # latency and brings p50 under the 5 s target.
+                max_new_tokens=256,
                 do_sample=False,
                 temperature=None,
                 top_p=None,
@@ -151,147 +186,14 @@ class QwenExtractor:
         )[0]
 
     # ────────────────────────────────────────────────────────────────────
-    # Tesseract — Alcohol content / Net contents / GW text + bbox + DPI
-    # ────────────────────────────────────────────────────────────────────
-    def _tesseract_observe(self, _qwen_img, raw_image_bytes: bytes) -> dict:
-        """One OCR pass yields four observations:
-
-          - alcohol_content (regex)
-          - net_contents (regex)
-          - warning_text (verbatim string from "GOVERNMENT WARNING:" onward)
-          - warning_bbox_h_px (pixel height of the preamble — for 16.22 type-size)
-          - dpi (from PIL EXIF; some scans expose it, phone photos usually don't)
-
-        Tesseract gets the FULL-resolution image (not Qwen's downsized one).
-        Tesseract degrades sharply below ~1200px tall on label-sized text;
-        Qwen's 1.5M-pixel cap drops resolution far below that.
+    @modal.method()
+    def health(self) -> dict:
+        """Warm-check probe. Returns immediately when the container is up
+        and load_model() has finished, so a caller with a 5s budget can
+        decide whether to trust Qwen for the current request or fall
+        back to Haiku for this one while Modal finishes warming up.
         """
-        import io
-        import re
-        import pytesseract
-        from PIL import Image
-        from pytesseract import Output
-
-        out = {
-            "alcohol_content":   "",
-            "net_contents":      "",
-            "warning_text":      "",
-            "warning_bbox_h_px": None,
-            "dpi":               None,
-        }
-
-        # Open the original (full-res) image specifically for OCR.
-        try:
-            ocr_img = Image.open(io.BytesIO(raw_image_bytes)).convert("RGB")
-            # Cap *up* — Tesseract benefits from at least 1200px tall when
-            # body text is ~12-16px on the original. If the image is huge,
-            # cap at 3000px to keep OCR latency bounded.
-            w, h = ocr_img.size
-            if h < 1200:
-                scale = 1200 / h
-                ocr_img = ocr_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-            elif h > 3000:
-                scale = 3000 / h
-                ocr_img = ocr_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-        except Exception as e:
-            out["tesseract_error"] = f"open: {e}"
-            return out
-
-        # DPI from EXIF (read from raw bytes, not the resized OCR image)
-        try:
-            exif_img = Image.open(io.BytesIO(raw_image_bytes))
-            dpi = exif_img.info.get("dpi")
-            if dpi and isinstance(dpi, tuple) and dpi[1] > 0:
-                out["dpi"] = float(dpi[1])
-        except Exception:
-            pass
-
-        try:
-            data = pytesseract.image_to_data(ocr_img, output_type=Output.DICT)
-        except Exception as e:
-            out["tesseract_error"] = str(e)
-            return out
-
-        words = data.get("text", [])
-        n = len(words)
-        full_text = " ".join(w for w in words if (w or "").strip())
-
-        # ABV — match "X.X% Alc./Vol.", "X.X% ALC/VOL", "X% by vol", etc.
-        # Tolerates comma decimals ("12,5%") and various Alc/Vol spellings.
-        abv_m = re.search(
-            r"(\d+(?:[.,]\d+)?)\s*%\s*(?:Alc\.?\s*(?:/|by\s+)?Vol\.?(?:ume)?|ALC\.?\s*/?\s*VOL\.?|alc\.?\s*/?\s*vol\.?)",
-            full_text,
-            flags=re.IGNORECASE,
-        )
-        if abv_m:
-            value = abv_m.group(1).replace(",", ".")
-            out["alcohol_content"] = f"{value}% Alc./Vol."
-        else:
-            # Proof fallback (US spirits): "94 Proof" or "90 PROOF"
-            proof_m = re.search(r"(\d+(?:[.,]\d+)?)\s*Proof\b", full_text, flags=re.IGNORECASE)
-            if proof_m:
-                value = proof_m.group(1).replace(",", ".")
-                out["alcohol_content"] = f"{value} Proof"
-
-        # Net contents — match "750 mL", "12 fl oz", "1.5 L", "0.75 L", "1 pint"
-        net_m = re.search(
-            r"(\d+(?:[.,]\d+)?)\s*(mL|ml|ML|L\b|fl\.?\s*oz|FL\.?\s*OZ|pints?|gal(?:lons?)?|liter|litre)",
-            full_text,
-        )
-        if net_m:
-            value = net_m.group(1).replace(",", ".")
-            unit = net_m.group(2)
-            # Normalize unit casing for readability
-            unit_norm = re.sub(r"\s+", " ", unit).strip()
-            if re.match(r"^ml$", unit_norm, flags=re.IGNORECASE):
-                unit_norm = "mL"
-            elif re.match(r"^l$", unit_norm, flags=re.IGNORECASE):
-                unit_norm = "L"
-            elif re.match(r"^fl\.?\s*oz$", unit_norm, flags=re.IGNORECASE):
-                unit_norm = "fl oz"
-            out["net_contents"] = f"{value} {unit_norm}"
-
-        # Government Warning — find "GOVERNMENT" then the next non-empty
-        # token starting with "WARNING". Tesseract sprinkles empty strings
-        # between real words; we walk past them.
-        warning_start_idx = None
-        for i in range(n):
-            wi = (words[i] or "").strip().upper()
-            if wi != "GOVERNMENT":
-                continue
-            # Find next non-empty token
-            for j in range(i + 1, n):
-                wj = (words[j] or "").strip().upper()
-                if not wj:
-                    continue
-                if wj.startswith("WARNING"):
-                    warning_start_idx = i
-                    h = max(int(data["height"][i] or 0), int(data["height"][j] or 0))
-                    if h > 0:
-                        out["warning_bbox_h_px"] = h
-                break
-            if warning_start_idx is not None:
-                break
-
-        if warning_start_idx is not None:
-            # Collect from the preamble through end-of-OCR, dropping when we
-            # drift far below the preamble vertically (heuristic for "left
-            # the warning region").
-            preamble_h = max(int(data["height"][warning_start_idx] or 0), 1)
-            text_words = []
-            last_y = int(data["top"][warning_start_idx] or 0)
-            for k in range(warning_start_idx, n):
-                w = (words[k] or "").strip()
-                if not w:
-                    continue
-                y = int(data["top"][k] or 0)
-                if y - last_y > preamble_h * 6:
-                    break
-                text_words.append(w)
-                last_y = y
-            out["warning_text"] = " ".join(text_words)
-
-        return out
+        return {"ok": True, "model_loaded": True}
 
     # ────────────────────────────────────────────────────────────────────
     @modal.method()
@@ -303,24 +205,23 @@ class QwenExtractor:
         t0 = time.time()
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         prepped = self._prep_image(pil_img)
+        t_prep = time.time()
 
-        # Pass 1 — v2 LoRA: the 4 trained fields
+        # v2 LoRA on the 4 trained fields. Tesseract was removed from the
+        # Modal pass to cut warm latency under 5s — ABV / Net contents /
+        # Government Warning text + bbox now come from Haiku (running in
+        # parallel on the Vercel side). DPI comes from the backend's
+        # image_pipeline EXIF read. Modal's only job here is Qwen.
         raw_v2 = self._generate(prepped, beverage_type)
-        t_v2 = time.time()
-
-        # Pass 2 — Tesseract on CPU (could be moved to a thread for true
-        # parallelism with the GPU pass; on a single warm A10G request the
-        # GIL won't matter much since GPU work releases the GIL).
-        tess = self._tesseract_observe(prepped, image_bytes)
-        t_tess = time.time()
+        t_done = time.time()
 
         return {
             "raw_v2": raw_v2,
-            "tesseract": tess,
-            "latency_sec": round(t_tess - t0, 3),
+            "tesseract": {},  # kept for backwards-compat with older Vercel clients
+            "latency_sec": round(t_done - t0, 3),
             "latency_breakdown": {
-                "v2":        round(t_v2 - t0,    3),
-                "tesseract": round(t_tess - t_v2, 3),
+                "prep": round(t_prep - t0, 3),
+                "qwen": round(t_done - t_prep, 3),
             },
         }
 
@@ -334,6 +235,27 @@ def extract_web(payload: dict) -> dict:
     if not img_b64:
         return {"error": "missing image_b64 in payload"}
     return QwenExtractor().extract.remote(base64.b64decode(img_b64), beverage)
+
+
+@app.function(image=image, timeout=120)
+@modal.fastapi_endpoint(method="GET", docs=True)
+def health_web() -> dict:
+    """GET /health_web — warm-check for the Qwen v2 container.
+
+    Caller (the Vercel function's /api/health route) wraps this in a 5s
+    httpx timeout. When the GPU container is warm, the round trip is
+    sub-second and the caller marks Modal "warm". When the container is
+    cold, this call blocks while load_model() runs (30-60s); the caller
+    times out and marks Modal "cold". The warmup still completes
+    server-side, so the *next* /api/verify finds Qwen ready.
+    """
+    import time
+    t0 = time.time()
+    try:
+        result = QwenExtractor().health.remote()
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "latency_sec": round(time.time() - t0, 3)}
+    return {**result, "latency_sec": round(time.time() - t0, 3)}
 
 
 @app.local_entrypoint()

@@ -16,11 +16,19 @@ export interface SampleSummary {
   note: string;
 }
 
-/** Fetch the list of available samples from the backend. */
+/** Fetch the curated picker subset (auto-pass + a few fails). */
 export async function fetchSamples(): Promise<SampleSummary[]> {
   if (!API_BASE_URL) throw new Error('Backend URL not configured.');
   const res = await fetch(`${API_BASE_URL}/samples`);
   if (!res.ok) throw new Error(`fetch samples failed: ${res.status}`);
+  return res.json() as Promise<SampleSummary[]>;
+}
+
+/** Fetch every sample (COLA Cloud + TTB-live + synthetic) for the gallery. */
+export async function fetchAllSamples(): Promise<SampleSummary[]> {
+  if (!API_BASE_URL) throw new Error('Backend URL not configured.');
+  const res = await fetch(`${API_BASE_URL}/samples/all`);
+  if (!res.ok) throw new Error(`fetch all samples failed: ${res.status}`);
   return res.json() as Promise<SampleSummary[]>;
 }
 

@@ -273,6 +273,94 @@ def _normalize_country_of_origin(extracted: str) -> str:
     return out
 
 
+_BOTTLER_SUFFIX_TOKENS = {
+    # Business-entity suffixes that appear anywhere on a bottler line and
+    # carry no semantic weight for matching purposes. Stripped from BOTH
+    # sides before token-subset comparison.
+    "llc", "l.l.c.", "l.l.c", "inc", "inc.", "ltd", "ltd.",
+    "corp", "corp.", "corporation", "co", "co.", "company",
+    "gmbh", "srl", "s.r.l.", "sa", "s.a.", "s.a", "sas",
+    "s.a.s.", "s.a.s", "de", "c.v.", "cv",
+}
+
+# US state name ↔ 2-letter abbreviation (lowercase). Bottler addresses
+# routinely declared one way and printed the other (declared "Illinois"
+# vs label "IL"); both should match.
+_STATE_ABBR = {
+    "alabama": "al", "alaska": "ak", "arizona": "az", "arkansas": "ar",
+    "california": "ca", "colorado": "co", "connecticut": "ct", "delaware": "de",
+    "florida": "fl", "georgia": "ga", "hawaii": "hi", "idaho": "id",
+    "illinois": "il", "indiana": "in", "iowa": "ia", "kansas": "ks",
+    "kentucky": "ky", "louisiana": "la", "maine": "me", "maryland": "md",
+    "massachusetts": "ma", "michigan": "mi", "minnesota": "mn",
+    "mississippi": "ms", "missouri": "mo", "montana": "mt", "nebraska": "ne",
+    "nevada": "nv", "new hampshire": "nh", "new jersey": "nj",
+    "new mexico": "nm", "new york": "ny", "north carolina": "nc",
+    "north dakota": "nd", "ohio": "oh", "oklahoma": "ok", "oregon": "or",
+    "pennsylvania": "pa", "rhode island": "ri", "south carolina": "sc",
+    "south dakota": "sd", "tennessee": "tn", "texas": "tx", "utah": "ut",
+    "vermont": "vt", "virginia": "va", "washington": "wa",
+    "west virginia": "wv", "wisconsin": "wi", "wyoming": "wy",
+}
+
+
+# Regex stripping common business-entity suffixes WHEREVER they appear,
+# with or without dots. Matches "LLC", "L.L.C.", "L.L.C", "INC", "INC.",
+# "S.A.S. DE C.V." etc. Applied before the generic punctuation-strip so
+# the dotted variants don't decompose into single-letter tokens that
+# would survive the suffix filter.
+_BIZ_SUFFIX_RE = __import__("re").compile(
+    r"\b(?:"
+    r"l\.?\s*l\.?\s*c\.?|"
+    r"l\.?\s*l\.?\s*p\.?|"
+    r"l\.?\s*p\.?|"
+    r"inc\.?|"
+    r"ltd\.?|"
+    r"corp(?:oration)?\.?|"
+    r"co(?:mpany)?\.?|"
+    r"gmbh|"
+    r"s\.?\s*a\.?\s*s\.?(?:\s*de\s*c\.?\s*v\.?)?|"
+    r"s\.?\s*r\.?\s*l\.?|"
+    r"s\.?\s*a\.?"
+    r")\b",
+    flags=__import__("re").IGNORECASE,
+)
+
+
+def _bottler_tokens(s: str) -> set[str]:
+    """Tokenize a bottler line into a set of comparable words.
+
+    Business suffixes are removed (whether dotted "L.L.C." or not),
+    multi-word state names collapse to their 2-letter abbreviation,
+    leftover punctuation is dropped. The output is a SET so comparisons
+    are order- and duplicate-insensitive. A street number like "1144"
+    stays a token — addresses that share only the city/state still
+    match because the city+state are the pieces the label actually
+    has to show under 27 CFR.
+    """
+    import re as _r
+    if not s:
+        return set()
+    # Lowercase + diacritic strip first (mirror _brand_normalize start)
+    import unicodedata as _u
+    norm = _u.normalize("NFKD", s)
+    norm = "".join(ch for ch in norm if not _u.combining(ch)).lower()
+    # Strip business-entity suffixes (with optional dots) BEFORE general
+    # punctuation removal — otherwise "l.l.c." decomposes into ["l","l","c"]
+    # which the suffix-set filter doesn't recognize.
+    norm = _BIZ_SUFFIX_RE.sub(" ", norm)
+    # Collapse multi-word state names to their abbreviation.
+    for full, abbr in _STATE_ABBR.items():
+        norm = _r.sub(rf"\b{full}\b", abbr, norm)
+    # Drop punctuation, then split on whitespace.
+    norm = _r.sub(r"[^\w\s]+", " ", norm)
+    toks = set(
+        t for t in norm.split()
+        if t and t not in _BOTTLER_SUFFIX_TOKENS and len(t) > 1
+    )
+    return toks
+
+
 def _classify_bottler(declared: str, extracted: str, *, brand_name: str = ""):
     """Bottler/producer name & address — permissive.
 
@@ -281,15 +369,20 @@ def _classify_bottler(declared: str, extracted: str, *, brand_name: str = ""):
       declared:  'Half Acre, Illinois'
       extracted: 'BREWED BY HALF ACRE IN CHICAGO, ILLINOIS'
 
-      declared:  'Cremisan'
-      extracted: 'Imported by Cremisan Wines, Brooklyn, NY'
+      declared:  'Moonridge Vineyard Santa Rosa, CA'
+      extracted: 'MOONRIDGE VINEYARD LLC, Santa Rosa, CA'
+
+      declared:  'World Sake Imports 1144 Tenth Ave Suite 401 Honolulu HI'
+      extracted: 'WORLD SAKE IMPORTS L.L.C., Honolulu, HI'
 
     TTB doesn't reject for extra detail on the printed bottler line; the
     requirement is that a bottler/producer name + address actually appear.
-    So we treat it as `match` whenever the extracted line CONTAINS the
-    declared bottler OR the brand name. Otherwise fall back to the
-    generic classifier — substantive differences (totally different
-    business entity) still flag.
+    Three-stage match (cascading from most strict to most lenient):
+      1. Substring containment of fully-normalized strings → match
+      2. Brand-name containment in extracted → match
+      3. Token-subset (city+state+entity-name tokens line up either
+         direction, business suffixes stripped) → match
+    Otherwise generic similarity — substantively different entities still flag.
     """
     from .field_match import FieldVerdict, _strict_normalize, classify_field
 
@@ -300,7 +393,7 @@ def _classify_bottler(declared: str, extracted: str, *, brand_name: str = ""):
     d_norm = _brand_normalize(declared)
     b_norm = _brand_normalize(brand_name)
 
-    # If the bottler line contains the declared bottler text → match.
+    # 1. Substring containment of normalized strings → match.
     if d_norm and (d_norm in e_norm or e_norm in d_norm):
         return FieldVerdict(
             status="match", normalized_declared=d_norm, normalized_extracted=e_norm,
@@ -309,15 +402,36 @@ def _classify_bottler(declared: str, extracted: str, *, brand_name: str = ""):
                  "Bottler line on the label contains the registered bottler with additional address detail.",
         )
 
-    # If the bottler line contains the registered BRAND name → match.
-    # (TTB-registered bottler IS often the brewery; printed line shows it
-    # spelled out with city/state/plant info.)
+    # 2. Brand-name containment in extracted (TTB-registered bottler often
+    # IS the brewery; printed line spells it out with city/plant info).
     if b_norm and b_norm in e_norm:
         return FieldVerdict(
             status="match", normalized_declared=d_norm, normalized_extracted=e_norm,
             similarity=0.95,
             note=f"Label's bottler line references the registered brand '{brand_name}'.",
         )
+
+    # 3. Token-subset match after business-suffix strip + state-abbr fold.
+    # Handles "Moonridge Vineyard Santa Rosa CA" vs "Moonridge Vineyard
+    # LLC, Santa Rosa, CA" (extra LLC) and "World Sake Imports 1144 Tenth
+    # Ave Suite 401 Honolulu HI" vs "World Sake Imports L.L.C., Honolulu,
+    # HI" (declared is a superset of extracted with street detail). At
+    # least 2 shared tokens prevents trivial single-word coincidences.
+    d_tok = _bottler_tokens(declared)
+    e_tok = _bottler_tokens(extracted)
+    if d_tok and e_tok:
+        shared = d_tok & e_tok
+        smaller = min(d_tok, e_tok, key=len)
+        if shared and shared == smaller and len(shared) >= 2:
+            return FieldVerdict(
+                status="match", normalized_declared=d_norm, normalized_extracted=e_norm,
+                similarity=0.9,
+                note=(
+                    "Bottler tokens line up (business-entity suffix and "
+                    "street-address detail differ but the core name + "
+                    "city/state match)."
+                ),
+            )
 
     # Otherwise generic comparison — different business entity should still flag.
     return classify_field(declared, extracted)
@@ -473,9 +587,20 @@ def _classify_class_type(declared: str, extracted: str):
     d_low = declared.strip().lower()
     e_low = extracted.strip().lower()
 
-    # Exact match (case-insensitive) — common case.
+    # Exact match (case-insensitive) — common case. Return MATCH directly
+    # instead of round-tripping through classify_field, which would have
+    # re-checked with case-preserving normalization and demoted a
+    # purely-casing-different pair (e.g. "table white wine" on the form
+    # vs "TABLE WHITE WINE" on the label) to "likely" with a misleading
+    # "casing differs" note. Class & type casing parity is not a TTB
+    # requirement, so this is unambiguously a full match.
     if d_low == e_low:
-        return classify_field(declared, extracted)
+        return FieldVerdict(
+            status="match",
+            normalized_declared=d_low,
+            normalized_extracted=e_low,
+            similarity=1.0,
+        )
 
     # Umbrella class declared, specific designation on label → match.
     # (form says 'beer', label says 'India Pale Ale')

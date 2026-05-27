@@ -38,7 +38,7 @@ from .image_pipeline import (
 from .models import ApplicationData, BatchItemResult, ImageQuality, TimingInfo, VerificationResult, group_for
 from .rules import verify as run_rules
 from .rules.mandatory_fields import ALL_FIELDS
-from .samples import get_sample_by_id, list_samples
+from .samples import get_sample_by_id, list_all_samples, list_samples
 
 logger = logging.getLogger("ttb")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -58,30 +58,76 @@ _BATCH_CONCURRENCY = 8
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "inferenceMode": settings.inference_mode}
+async def health() -> dict:
+    """Liveness + Modal warmth probe.
+
+    On the modal inference path, this hits the Modal /health_web
+    endpoint with a 5s budget. A sub-second round trip means the Qwen
+    v2 GPU container is warm and the next /api/verify will get Qwen
+    extraction for the four trained fields. A timeout means Modal is
+    still cold-starting (load_model runs ~30-60s) — /api/verify will
+    transparently fall back to Haiku-only for that request while the
+    warmup completes server-side. Either way the API is healthy.
+    """
+    out: dict = {"status": "ok", "inferenceMode": settings.inference_mode}
+    if settings.inference_mode != "modal" or not settings.modal_health_url:
+        return out
+
+    import httpx
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=settings.modal_health_timeout) as client:
+            r = await client.get(settings.modal_health_url)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        warm = r.status_code == 200 and elapsed_ms < int(settings.modal_health_timeout * 1000)
+        out["modal"] = {
+            "warm": warm,
+            "latencyMs": elapsed_ms,
+            "statusCode": r.status_code,
+        }
+    except httpx.TimeoutException:
+        out["modal"] = {
+            "warm": False,
+            "latencyMs": int((time.perf_counter() - t0) * 1000),
+            "note": f"timed out after {settings.modal_health_timeout}s — container cold-starting",
+        }
+    except Exception as e:
+        out["modal"] = {"warm": False, "error": str(e)[:200]}
+    return out
+
+
+def _serialize_sample(s) -> dict:
+    return {
+        "id": s.id,
+        "kind": s.kind,
+        "imageUrl": f"/api/samples/{s.id}/image",
+        "applicationData": s.application_data.model_dump(),
+        "expectedOutcome": s.expected_outcome,
+        "note": s.note,
+    }
 
 
 @app.get("/api/samples")
 def get_samples() -> list[dict]:
-    """List every sample COLA application available to pre-fill the form.
+    """Curated picker subset shown on the /upload page.
 
-    Two sections: synthetic (9 hand-crafted controlled cases) + real
-    (curated COLA Cloud free sample, public CC0 data). Each entry
-    includes the application data and an imageUrl that hits
-    /api/samples/{id}/image to fetch the actual label artwork.
+    Currently COLA Cloud only: every auto-pass row plus a handful of
+    needs-review failures so the demo dropdown surfaces both happy and
+    unhappy paths. For the full universe (gallery), see /api/samples/all.
     """
-    out: list[dict] = []
-    for s in list_samples():
-        out.append({
-            "id": s.id,
-            "kind": s.kind,
-            "imageUrl": f"/api/samples/{s.id}/image",
-            "applicationData": s.application_data.model_dump(),
-            "expectedOutcome": s.expected_outcome,
-            "note": s.note,
-        })
-    return out
+    return [_serialize_sample(s) for s in list_samples()]
+
+
+@app.get("/api/samples/all")
+def get_samples_all() -> list[dict]:
+    """Full sample universe shown on the /samples gallery page.
+
+    Includes every COLA Cloud row, every curated TTB-live label, and
+    the synthetic CI fixtures. Each card on the gallery links into
+    /upload?sample={id} so the user can edit ABV / Net contents
+    before submitting.
+    """
+    return [_serialize_sample(s) for s in list_all_samples()]
 
 
 @app.get("/api/samples/{sample_id}/image")
@@ -183,6 +229,7 @@ async def _run_pipeline(image_bytes: bytes, app_data: ApplicationData) -> Verifi
         extractorMs=extractor_ms,
         rulesMs=rules_ms,
         totalMs=int((time.perf_counter() - pipeline_start) * 1000),
+        extractorSource=extracted.extractor_source,
     )
     return result
 

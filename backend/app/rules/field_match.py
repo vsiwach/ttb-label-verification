@@ -54,9 +54,14 @@ def normalize_for_compare(s: str) -> str:
 
     Two strings that are 'loosely equal' are equivalent up to case and
     cosmetic punctuation — which is the threshold for a 'likely' match.
+    Also folds whitespace adjacent to commas / periods / semicolons so
+    "Santa Rosa , CA" (declared, with a stray space from a TTB CSV) and
+    "Santa Rosa, CA" (extracted, normally punctuated) normalize identically.
     """
     s = _strict_normalize(s).lower()
     s = s.strip(" .,;:")
+    s = re.sub(r"\s*([,.;:])\s*", r"\1 ", s)  # collapse padding around punctuation
+    s = re.sub(r"\s+", " ", s).strip()
     return s
 
 
@@ -119,9 +124,14 @@ def classify_field(declared: str, extracted: str) -> FieldVerdict:
     nd = normalize_for_compare(declared)
     ne = normalize_for_compare(extracted)
     if nd == ne:
-        # Loose-equal but not strict-equal -> case or cosmetic punctuation differs.
+        # Loose-equal: strings are identical once we fold case + collapse
+        # whitespace + strip cosmetic punctuation. Casing parity between
+        # the COLA form text and the printed label is not a TTB
+        # requirement — it's purely cosmetic — so this is a full MATCH,
+        # not a "likely". The reason string is kept as an informational
+        # note so the agent sees what differed visually.
         note = _likely_reason(declared, extracted, nd, ne)
-        return FieldVerdict(status="likely", normalized_declared=nd, normalized_extracted=ne, similarity=1.0, note=note)
+        return FieldVerdict(status="match", normalized_declared=nd, normalized_extracted=ne, similarity=1.0, note=note)
 
     sim = _similarity(nd, ne)
 

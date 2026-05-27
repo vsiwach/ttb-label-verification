@@ -30,27 +30,45 @@ verdict cites the regulation that produced it.
 ┌────────────────────────────────────────────────────────────────────┐
 │  Browser — React + Vite (src/)                                     │
 │  ├─ /upload     single-label submission + form                     │
-│  ├─ /result     verdict + per-field cards + warning panel          │
 │  ├─ /batch      batch dashboard (grouped by verdict bucket)        │
-│  └─ /review     batch review queue (HITL workflow)                 │
+│  └─ /samples    sample-label gallery (single + multi-select)       │
+│  Pre-warm: GET /health on mount + route change + every 4 min       │
 └──────────────────────────────┬─────────────────────────────────────┘
                                │ multipart POST /api/verify or /verify-batch
                                ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│  Backend — FastAPI (backend/app/)                                  │
+│  Backend — FastAPI on Vercel (api/index.py → backend/app/)         │
 │                                                                    │
-│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐  │
-│  │ image_pipeline   │ │  LabelExtractor  │ │  rules engine    │  │
-│  │ • validate       │→│  (swappable)     │→│  (deterministic) │  │
-│  │ • measure        │ │  • mock          │ │  • field_match   │  │
-│  │ • legibility     │ │  • cloud Claude  │ │  • gov warning   │  │
-│  │ • ephemeral crop │ │  • claude-code   │ │  • mandatory     │  │
-│  └──────────────────┘ │  • onprem (OCR)  │ │  • net contents  │  │
-│                       │  • sft (Qwen LoRA)│ │  • citations     │  │
-│                       │  • modal (Qwen on│ └────────┬─────────┘  │
-│                       │    Modal A10G)    │          ▼            │
-│                       └──────────────────┘  VerificationResult    │
-│                                                                    │
+│  ┌──────────────────┐                                              │
+│  │ image_pipeline   │   modal mode (production): three-way         │
+│  │ • validate       │   asyncio.gather fan-out                     │
+│  │ • measure        │ ┌───────────────────────────────────────┐    │
+│  │ • legibility     │ │ 1. Modal Qwen v2 LoRA (A10G)          │    │
+│  │ • ephemeral crop │ │    ttb-qwen-extractor-v2              │    │
+│  └────────┬─────────┘ │    → brand / class / bottler / COO    │    │
+│           │           │ 2. Anthropic Haiku 4.5                │    │
+│           ▼           │    → ABV / Net / Gov Warning text     │    │
+│  ┌──────────────────┐ │ 3. Modal Tesseract (CPU)              │    │
+│  │  LabelExtractor  │ │    ttb-tesseract                      │    │
+│  │  (swappable)     │←┤    → warning bbox + EXIF DPI          │    │
+│  │  • mock          │ └───────────────────────────────────────┘    │
+│  │  • cloud (Haiku) │   MODAL_TIMEOUT=8s; on Qwen timeout fall    │
+│  │  • claude-code   │   back to Haiku full-extraction +           │
+│  │  • onprem (OCR)  │   Tesseract overlay (extractorSource =      │
+│  │  • sft (local)   │   "haiku-fallback"); warm = "modal+haiku".  │
+│  │  • modal         │                                              │
+│  └────────┬─────────┘                                              │
+│           ▼                                                        │
+│  ┌──────────────────┐                                              │
+│  │  rules engine    │  deterministic, no AI                        │
+│  │  • field_match   │  • case-only diffs → match (not "likely")    │
+│  │  • gov warning   │  • bottler: suffix-strip + state↔abbrev fold │
+│  │  • mandatory     │  • 16.22 size: Tesseract bbox + EXIF DPI →   │
+│  │  • net contents  │      pass / advisory / hard flag             │
+│  │  • citations     │  • GW contrast/separation: advisory-only     │
+│  └────────┬─────────┘                                              │
+│           ▼                                                        │
+│   VerificationResult                                               │
 └────────────────────────────────────────────────────────────────────┘
                                │ JSON: fields + governmentWarning + imageQuality
                                ▼
@@ -59,6 +77,14 @@ verdict cites the regulation that produced it.
                        ├─ needs-confirm (any field likely)
                        └─ needs-review (any field flag, or warning issue)
 ```
+
+### Privacy positioning (three-way fan-out)
+
+The split is intentional and Treasury-defensible:
+
+- **Modal Qwen LoRA** runs in a container we control (A10G GPU). Brand / class / bottler / country never leave our infra — the "on-prem-equivalent" path for the PII-class fields.
+- **Anthropic Haiku** is the hybrid commodity layer for the public-text fields fixed verbatim by 27 CFR 16.21 (the Government Warning) plus two small numerics (ABV, net contents). None of these carry brand or business PII.
+- **Modal Tesseract** is a CPU container that returns a deterministic warning bbox + EXIF DPI for the 27 CFR 16.22 type-size check — no model, no inference.
 
 **Key separation of concerns:**
 
@@ -76,11 +102,12 @@ SPA built to a static bundle (Vercel-deployable).
 | Route | Page component | Purpose |
 |---|---|---|
 | `/` and `/upload` | `UploadPage.tsx` | Single-label submission: image dropzone + COLA application form |
-| `/result` | `ResultPage.tsx` | Per-label verdict view: field cards, warning panel, regulatory citations |
 | `/batch` | `BatchPage.tsx` | Batch dashboard: grouped item counts, drill-down into each group |
-| `/review` | `ReviewPage.tsx` | HITL queue: walks the operator through `needs-review` items |
+| `/samples` | `SamplesPage.tsx` | Sample-label gallery: single click → `/upload?sample=<id>`; with `?for=batch`, multi-select queues into `/batch?samples=<ids>` |
 | `/system` | `SystemPage.tsx` | Architecture explainer + system status |
 | `/styleguide`, `/api-demo` | (dev pages) | Component gallery + API request/response viewer |
+
+No `Samples` link in the header — the gallery is reached via the "Browse sample labels" button on the FileDropzone (single mode) or `/samples?for=batch` (multi-select for batch).
 
 ### API client (src/api/client.ts)
 
@@ -179,11 +206,11 @@ class GovernmentWarningAnalysis(BaseModel):
     present: bool
     verbatimMatch: bool
     casingBoldOk: bool       # GOVERNMENT WARNING heading is ALL CAPS
-    contrastOk: bool
-    separateAndApart: bool
+    contrastOk: bool         # advisory-only; always True in payload, concerns surface as deviation
+    separateAndApart: bool   # advisory-only; always True in payload, concerns surface as deviation
+    fontSizeMm: float | None         # Tesseract bbox back-scaled + DPI (EXIF, else 300-DPI default)
+    fontSizeDpiSource: Literal["exif", "assumed"] | None
     deviations: list[WarningDeviation]    # typed list with citations
-    # NOTE: 27 CFR 16.22 minimum type size (1/2/3 mm by container) is
-    # intentionally not in this schema — see §10 N1.
 
 class VerificationResult(BaseModel):
     fields: list[VerificationField]
@@ -207,26 +234,29 @@ Selected by `INFERENCE_MODE` env var. All implement `LabelExtractor.extract(imag
 | Mode | When to use | Latency | Cost | Supply chain |
 |---|---|---|---|---|
 | `mock` | Local frontend dev, deterministic CI | ~0 s | $0 | n/a |
-| `cloud` | Claude Vision via Anthropic API; current production accuracy ceiling | ~8 s | $0.005/label | US (Anthropic) |
+| `cloud` | Anthropic Haiku 4.5 alone; Vercel live demo when Modal endpoints aren't wired | ~5-7 s | ~$0.001/label | US (Anthropic) |
 | `claude-code` | Same model via Claude Code CLI; bills against Max subscription instead of API | ~30 s | flat-rate (Max plan) | US |
 | `onprem` | Tesseract OCR + optional self-hosted Phi-3.5-vision on Ollama; air-gapped agency networks | varies | $0 (existing hardware) | US (Microsoft) |
 | `sft` | Locally-loaded Qwen2.5-VL LoRA in BF16. Direct transformers + peft. CUDA, MPS, or CPU | ~3-10 s | $0 marginal | China (Alibaba) — reference; replace for prod |
-| `modal` | Same Qwen LoRA served on Modal A10G; scale-to-zero; HTTPS endpoint | ~3-5 s (warm) | ~$0.001/req | China (Alibaba) — reference |
+| `modal` | **Production path.** Three-way fan-out: Modal Qwen v2 LoRA (A10G) + Anthropic Haiku + Modal Tesseract (CPU), all via `asyncio.gather`. `MODAL_TIMEOUT=8s`; Qwen-timeout falls back to Haiku full extraction + Tesseract overlay (`extractorSource: "haiku-fallback"`) | ~4.5-6 s (warm) | ~$0.001/req Modal + ~$0.001/req Haiku | hybrid: Modal-controlled GPU (Qwen) + US (Anthropic) + Modal CPU (Tesseract) |
 
 ### How the SFT path produces an `ExtractedLabel`
 
 ```
 image_bytes
    │
-   ├── PIL resize to ≤640×640 area (caps visual-token count at ~400)
+   ├── Modal Qwen container caps at MAX_PIXELS = 1024×1024 (~1M); local
+   │   sft mode still uses the 640×640 cap to fit smaller VRAM budgets
    │
    ├── apply_chat_template with the canonical SYSTEM_PROMPT (forbids
    │   snake_case field names; mandates exact schema keys)
    │
    ├── Qwen2.5-VL-7B (BF16) + LoRA adapter (merged into base at load
-   │   time → eliminates per-call LoRA overhead)
+   │   time → eliminates per-call LoRA overhead). @modal.enter() runs
+   │   one dummy 560×560 inference after load_model() so first user
+   │   request hits warm kernels.
    │
-   ├── model.generate(max_new_tokens=384, do_sample=False)
+   ├── model.generate(max_new_tokens=256, do_sample=False)
    │
    ├── _try_parse_json (best-effort: strips markdown fences, smart quotes,
    │   trailing commas, balances missing braces, walks back to find

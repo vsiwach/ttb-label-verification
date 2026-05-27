@@ -61,6 +61,12 @@ class ExtractedLabel:
     # JPEG/PNG carries DPI metadata; None for screenshots or stripped
     # images. Enables the deterministic type-size check.
     image_dpi: Optional[tuple[int, int]] = None
+    # Which extractor actually produced this read. Surfaces in TimingInfo
+    # so the UI can show "modal+haiku" on the warm path or
+    # "haiku-fallback" when Modal was cold. Optional — only set by
+    # ModalRemoteExtractor; other extractors leave it None and the API
+    # layer falls back to settings.inference_mode.
+    extractor_source: Optional[str] = None
 
 
 class LabelExtractor(ABC):

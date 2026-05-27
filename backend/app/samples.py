@@ -113,27 +113,42 @@ def _load_synthetic() -> list[Sample]:
 
 def _clean_real_row(r: dict) -> bool:
     """Filter to rows whose application metadata is well-formed AND whose
-    backing image actually exists on disk."""
+    backing image actually exists on disk.
+
+    Requires the four user-fillable form fields (brand, class, ABV, net)
+    to be non-empty on the CSV side — incomplete rows would land in the
+    picker with blanks in the ApplicationData panel, which the agent
+    flagged as confusing. Bottler is handled in _row_to_application_data
+    via OCR backfill (the CSV has it empty on every row).
+    """
     bad = lambda s: not s or len(s) > 50 or any(c in s for c in "(/.")
     if bad(r["brand_name"]) or bad(r["class_type"]):
         return False
     if r.get("mutation"):
+        return False
+    if not (r.get("alcohol_content") or "").strip():
+        return False
+    if not (r.get("net_contents") or "").strip():
         return False
     return (REAL_DIR / r["image_filename"]).exists()
 
 
 def _row_to_application_data(r: dict) -> ApplicationData | None:
     try:
-        # The COLA Cloud CSV has bottler_name_address empty on ~95% of
-        # rows. We tried synthesizing it from the OCR text (see
-        # ocr_bottler.py), but that *worsened* the engine agreement rate:
-        # our pre-baked OCR and Claude's fresh vision OCR produce
-        # different bottler strings for the same label, so the engine
-        # legitimately flags the "mismatch." The honest behavior is to
-        # leave bottler empty — the engine then returns match with
-        # "Application did not declare this field; label content shown
-        # for review." See REAL_AUDIT.md for the empirical comparison.
-        bottler = r.get("bottler_name_address") or ""
+        # The COLA Cloud CSV has bottler_name_address empty on every row,
+        # so we synthesize it from the label's pre-baked OCR text. The
+        # original author left it empty because OCR-derived bottlers
+        # don't byte-match the engine's vision-language extraction —
+        # that decision was revisited because the demo picker needs
+        # every required form field populated. The trade-off: the
+        # engine may flag some bottlers as likely-match (not exact),
+        # which is acceptable for demo purposes and exercises the HITL
+        # one-click-confirm path.
+        bottler = (r.get("bottler_name_address") or "").strip()
+        if not bottler:
+            bottler = extract_bottler(r.get("image_ocr_text") or "")
+        if not bottler:
+            return None  # Drop rows we can't fill bottler for
         return ApplicationData(
             colaNumber=r["ttb_id"],
             brandName=r["brand_name"],
@@ -304,46 +319,52 @@ _TTB_LIVE:  list[Sample] = _load_ttb_live()
 ALL_SAMPLES: list[Sample] = _SYNTHETIC + _REAL + _TTB_LIVE
 
 
-# Cap how many TTB-live samples the picker exposes. The full scrape is
-# ~11K rows which made the dropdown unusable (browser hung on render).
-# 80 stratified samples is plenty for demo and per-beverage spot-checks;
-# the full corpus remains accessible by ID via get_sample_by_id() so
-# eval scripts and direct links keep working.
-_PICKER_TTB_LIVE_CAP = 80
+# Picker = curated COLA Cloud demo set. Two motivations for trimming:
+#   - The user's task is to demo the engine end-to-end on TTB-approved
+#     labels, with both happy paths (auto-pass) and a few failures
+#     (needs-review) so the HITL surface is visible.
+#   - TTB-live samples have empty ABV/Net contents on the form side, so
+#     they always land in needs-confirm — they're more useful in the
+#     full gallery view than in the demo dropdown.
+# The full universe (synthetic + every COLA Cloud row + every TTB-live
+# row with an image) is still exposed via list_all_samples() for the
+# /samples gallery page; the picker on /upload stays small and curated.
+_PICKER_FAIL_CAP = 5  # how many needs-review labels to surface
 
 
 def list_samples() -> list[Sample]:
-    """Return the samples shown in the agent UI picker.
+    """Return the curated COLA Cloud subset shown in the /upload picker.
 
-    Two tiers:
-      - real    : COLA Cloud free-sample labels (~67 rows; bottler empty)
-      - ttb-live: scraped directly from TTB Public Registry (full form data),
-                  capped to _PICKER_TTB_LIVE_CAP and stratified across
-                  spirits/wine/beer-malt so each beverage is represented.
+    Composition (depends on test/eval/real_audit.json's engine verdicts):
+      - every COLA Cloud row the audit marked auto-pass
+      - up to _PICKER_FAIL_CAP rows the audit marked needs-review (so
+        the demo includes visible failure cases)
+    Ordering: auto-pass first, then the fails, so the dropdown opens
+    with the happy path.
 
-    Synthetic fixtures stay on disk for the CI gate but aren't in the picker.
+    Synthetic + TTB-live samples are intentionally excluded from the
+    picker; they're still accessible via list_all_samples() and by id.
     """
     real_with_image = [s for s in _REAL if s.image_path.exists()]
-    ttb_with_image  = [s for s in _TTB_LIVE if s.image_path.exists()]
+    auto_pass = [s for s in real_with_image if s.expected_outcome == "auto-pass"]
+    fails     = [s for s in real_with_image if s.expected_outcome == "needs-review"][:_PICKER_FAIL_CAP]
+    return auto_pass + fails
 
-    # Stratify the TTB-live cap across beverage types so the picker isn't
-    # 80% wine (which is what naïve sampling would give since wine is
-    # the majority of approved COLAs).
-    by_bev: dict[str, list[Sample]] = {}
-    for s in ttb_with_image:
-        bev = getattr(s, "beverage_type", None) or "wine"
-        by_bev.setdefault(bev, []).append(s)
-    per_bucket = max(1, _PICKER_TTB_LIVE_CAP // max(len(by_bev), 1))
 
-    picked: list[Sample] = []
-    for bev, bucket in sorted(by_bev.items()):
-        picked.extend(bucket[:per_bucket])
-    # If rounding left room, top up from whichever bucket has more
-    if len(picked) < _PICKER_TTB_LIVE_CAP:
-        leftover = [s for bucket in by_bev.values() for s in bucket[per_bucket:]]
-        picked.extend(leftover[: _PICKER_TTB_LIVE_CAP - len(picked)])
+def list_all_samples() -> list[Sample]:
+    """Return every sample with a label image on disk — the full universe
+    feeding the /samples gallery page.
 
-    return picked + real_with_image
+    Tiers in display order:
+      - real     : COLA Cloud free-sample labels (form data fully populated)
+      - ttb-live : scraped from the TTB Public Registry (form data minus
+                   ABV/Net which the agent edits on the verify form)
+      - synthetic: hand-crafted controlled cases (kept last; CI fixtures)
+    """
+    real      = [s for s in _REAL      if s.image_path.exists()]
+    ttb_live  = [s for s in _TTB_LIVE  if s.image_path.exists()]
+    synthetic = [s for s in _SYNTHETIC if s.image_path.exists()]
+    return real + ttb_live + synthetic
 
 
 def get_sample_by_id(sample_id: str) -> Sample | None:

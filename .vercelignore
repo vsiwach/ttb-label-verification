@@ -14,13 +14,18 @@ test/eval/data/ttb_live/scrape.log
 test/eval/data/ttb_live_test/
 test/eval/report*
 test/eval/qwen_report*
-test/eval/real_audit*
-test/eval/ttb_live_audit*
+# real_audit.json + ttb_live_audit.json ARE shipped — samples.py uses
+# their engine verdicts as the verdict pill in the picker / gallery so
+# users see the engine's typical output, not just the TTB disposition.
 test/eval/holdout*
 test/eval/uat_pack/
 test/eval/*.md
 test/eval/*.py
 test/eval/*.json
+# But un-ignore the audit JSONs — samples.py reads them at import time
+# to compute the verdict pill on each picker / gallery card.
+!test/eval/real_audit.json
+!test/eval/ttb_live_audit.json
 test/manual/
 test/smoke/
 

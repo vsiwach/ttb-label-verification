@@ -11,6 +11,14 @@ export interface FileDropzoneProps {
   hint?: string;
   buttonLabel?: string;
   icon?: ComponentType<IconProps>;
+  /** When set, the primary button calls this instead of opening the file
+   *  picker. Drag-and-drop still uploads files directly; a small text
+   *  link below the dropzone exposes the file-picker fallback. Used by
+   *  /upload and /batch to send the user to the sample gallery. */
+  onBrowse?: () => void;
+  /** Label for the file-picker fallback link, shown only when onBrowse
+   *  is set. Defaults to "Or pick a file from your computer". */
+  pickerFallbackLabel?: string;
 }
 
 export default function FileDropzone({
@@ -21,6 +29,8 @@ export default function FileDropzone({
   hint = 'JPEG or PNG, up to 20 MB.',
   buttonLabel = 'Choose a file…',
   icon: IconComp = IconUpload,
+  onBrowse,
+  pickerFallbackLabel = 'Or pick a file from your computer',
 }: FileDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -74,7 +84,11 @@ export default function FileDropzone({
             {hint} <span className="kbd">⌘V</span> to paste also works.
           </p>
         </div>
-        <Button size="lg" icon={IconImage} onClick={() => inputRef.current?.click()}>
+        <Button
+          size="lg"
+          icon={IconImage}
+          onClick={() => (onBrowse ? onBrowse() : inputRef.current?.click())}
+        >
           {buttonLabel}
         </Button>
         <p id="dz-state" className="sr-only" aria-live="polite">
@@ -89,6 +103,19 @@ export default function FileDropzone({
           onChange={(e) => handle(e.target.files)}
         />
       </div>
+      {onBrowse && (
+        <p style={{ margin: '8px 0 0', textAlign: 'center', fontSize: 13 }}>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            style={{
+              background: 'none', border: 'none', padding: 0,
+              color: 'var(--color-primary)', fontWeight: 600,
+              cursor: 'pointer', textDecoration: 'underline',
+            }}
+          >{pickerFallbackLabel}</button>
+        </p>
+      )}
       {error && (
         <div role="alert" className="field__error" style={{ marginTop: 12 }}>
           <IconWarn size={16} aria-hidden="true" />

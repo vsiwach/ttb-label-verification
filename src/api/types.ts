@@ -44,10 +44,17 @@ export interface GovernmentWarningAnalysis {
   deviations: Array<{ type: string; message: string }>;
   /** Always this constant — included for downstream filtering / display. */
   regulation: '27 CFR 16.21/16.22';
-  /** 27 CFR 16.22 minimum type size, computed from the warning bbox + image
-   *  DPI when both are available. null when inputs missing (phone photos
-   *  without DPI, or extractor returned no bbox) — agent confirms manually. */
+  /** 27 CFR 16.22 minimum type size. Deterministic — runs every time the
+   *  extractor returned a warning bbox. DPI comes from EXIF when present
+   *  or falls back to a documented default (TTB's 300 DPI submission
+   *  standard); the provenance flows through fontSizeDpiSource. */
   fontSizeOk?: boolean | null;
+  /** Measured mm per line of warning body text. */
+  fontSizeMm?: number | null;
+  /** "exif" when DPI came from the image's JPEG/PNG metadata (authoritative);
+   *  "assumed" when the rule engine used the 300 DPI default because EXIF
+   *  was missing — the UI should surface this as estimated. */
+  fontSizeDpiSource?: 'exif' | 'assumed' | null;
 }
 
 /** Image-quality signal. Drives the "re-upload a sharper image" prompt. */
@@ -68,6 +75,12 @@ export interface TimingInfo {
   extractorMs: number;
   rulesMs: number;
   totalMs: number;
+  /** Which extractor combination actually served this request.
+   *  "modal+haiku"  — Qwen v2 served the 4 trained fields, Haiku the rest.
+   *  "haiku-fallback" — Modal was cold; Haiku covered all six fields alone.
+   *                    The next request should find Qwen warm.
+   *  Absent on non-modal modes (mock / cloud / claude-code / sft / onprem). */
+  extractorSource?: "modal" | "modal+haiku" | "haiku-fallback" | string;
 }
 
 /** The full result of /api/verify. */

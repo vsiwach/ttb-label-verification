@@ -37,7 +37,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 # to use Haiku instead. Set BEFORE importing app.main so settings pick it up.
 os.environ.setdefault("INFERENCE_MODE",    "modal")
 os.environ.setdefault("MODAL_ENDPOINT_URL", "https://vsiwach--ttb-qwen-extractor-v2-extract-web.modal.run")
-os.environ.setdefault("MODAL_TIMEOUT",     "25")  # Vercel maxDuration is 30s
+os.environ.setdefault("MODAL_TIMEOUT",     "8")   # Snap to Haiku fallback if Modal is cold/slow
 # Cloud fallback config (used only if env explicitly sets INFERENCE_MODE=cloud)
 os.environ.setdefault("CLOUD_PROVIDER", "anthropic")
 os.environ.setdefault("CLOUD_MODEL",    "claude-haiku-4-5")

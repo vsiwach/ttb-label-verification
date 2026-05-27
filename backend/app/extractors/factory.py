@@ -45,5 +45,8 @@ def get_extractor(brand_hint: str = "") -> LabelExtractor:
             # the key, those fields come back empty (engine flags them).
             anthropic_api_key=settings.anthropic_api_key,
             cloud_model=settings.cloud_model,
+            # CPU-only Tesseract endpoint provides the deterministic
+            # warning bbox + EXIF DPI for the 16.22 type-size check.
+            tesseract_url=settings.modal_tesseract_url,
         )
     raise InferenceError(f"Unknown INFERENCE_MODE={mode!r}")

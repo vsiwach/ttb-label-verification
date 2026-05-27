@@ -316,10 +316,12 @@ export default function GovernmentWarningPanel({ gw, loading }: GovernmentWarnin
         )}
 
         {gw.deviations.length > 0 && (() => {
-          // Near-verbatim OCR slip is advisory; everything else is a real
-          // deviation the agent should action.
+          // Advisories are non-blocking notes the agent confirms visually:
+          //   near_verbatim     — OCR slip on the verbatim text
+          //   bodyBoldAdvisory  — vision model over-reports bold weight
+          //   *Advisory suffix  — generic catch for future advisory-only signals
           const isAdvisory = (d: { type: string; message: string }) =>
-            /near_verbatim/i.test(d.type);
+            /near_verbatim/i.test(d.type) || /advisory$/i.test(d.type);
           const substantive = gw.deviations.filter(d => !isAdvisory(d));
           const advisory    = gw.deviations.filter(isAdvisory);
           return (
@@ -330,7 +332,7 @@ export default function GovernmentWarningPanel({ gw, loading }: GovernmentWarnin
                   <ul className="gw__deviations">
                     {substantive.map((d, i) => (
                       <li key={`s-${i}`} className="gw__deviation">
-                        <span className="gw__deviation-type">{d.type}</span>
+                        <span className="gw__deviation-type">{humanizeDeviationType(d.type)}</span>
                         <span>{d.message}</span>
                       </li>
                     ))}
@@ -343,7 +345,7 @@ export default function GovernmentWarningPanel({ gw, loading }: GovernmentWarnin
                   <ul className="gw__deviations gw__deviations--advisory">
                     {advisory.map((d, i) => (
                       <li key={`a-${i}`} className="gw__deviation gw__deviation--advisory">
-                        <span className="gw__deviation-type gw__deviation-type--advisory">{d.type}</span>
+                        <span className="gw__deviation-type gw__deviation-type--advisory">{humanizeDeviationType(d.type)}</span>
                         <span>{d.message}</span>
                       </li>
                     ))}
@@ -363,17 +365,43 @@ export default function GovernmentWarningPanel({ gw, loading }: GovernmentWarnin
         {gw.fontSizeOk === null || gw.fontSizeOk === undefined ? (
           <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--color-ink-muted)' }}>
             <strong>Type size (27 CFR 16.22) not checked on this image</strong> —
-            requires DPI metadata + a clean warning bbox. TTB-scraped JPEGs carry
-            DPI; phone photos and stripped images do not. Agent confirms manually.
+            the extractor returned no warning bbox to measure. Agent confirms manually.
+          </p>
+        ) : gw.fontSizeDpiSource === 'assumed' ? (
+          <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--color-ink-muted)' }}>
+            <strong>Type size measured at ~{gw.fontSizeMm?.toFixed(2)} mm per line</strong> —
+            image lacks DPI metadata, so this used TTB's 300 DPI submission default.
+            For compliance-grade verification, request a scan with DPI in the JPEG header.
           </p>
         ) : (
           <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--color-ink-muted)' }}>
-            <strong>Type size verified</strong> from the image's DPI metadata and the
-            warning text bounding box. This is an approximate measurement (±5–10%);
+            <strong>Type size measured at ~{gw.fontSizeMm?.toFixed(2)} mm per line</strong>{' '}
+            from the image's EXIF DPI and the warning text bounding box. ±5–10% expected;
             TTB inspectors verify with a ruler on a physical sample for borderline cases.
           </p>
         )}
       </footer>
     </section>
   );
+}
+
+// camelCase / snake_case deviation types into short, readable chip labels.
+// The chip CSS uppercases the text, so we return spaced lowercase words
+// and let CSS handle the visual case — "BODY BOLD" looks better than
+// "BODYBOLDADVISORY" run together.
+const DEVIATION_LABEL: Record<string, string> = {
+  wording:            'Wording',
+  near_verbatim:      'OCR slip',
+  casing:             'Casing',
+  fontSize:           'Font size',
+  contrast:           'Contrast',
+  separation:         'Separation',
+  missing:            'Missing',
+  bodyBoldAdvisory:   'Body bold',
+};
+
+function humanizeDeviationType(type: string): string {
+  if (DEVIATION_LABEL[type]) return DEVIATION_LABEL[type];
+  // Generic fallback: split camelCase into spaced words.
+  return type.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
 }

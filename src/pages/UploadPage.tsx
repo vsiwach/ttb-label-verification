@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ApplicationData } from '../api/types';
 import type { BeverageType } from '../api/ttbRules';
 import { requiredFields } from '../api/ttbRules';
-import { fetchSampleImage, fetchSamples, type SampleSummary } from '../api/samples';
+import { fetchAllSamples, fetchSampleImage, fetchSamples, type SampleSummary } from '../api/samples';
 import Alert from '../components/Alert';
 import Button from '../components/Button';
 import FileDropzone from '../components/FileDropzone';
 import { SkeletonBlock, SkeletonLine } from '../components/Skeleton';
-import { IconArrowR, IconCheck, IconInfo, IconLightning, IconWarn } from '../components/icons';
+import { IconArrowR, IconCheck, IconInfo, IconWarn } from '../components/icons';
 import { downscaleImage, formatBytes, type DownscaleResult } from '../utils/downscaleImage';
+import { preWarmModal } from '../utils/preWarm';
 import { verifyStore, type UploadedImage } from '../store/verifyStore';
 
 type ApplicationKey = keyof ApplicationData;
@@ -47,6 +48,7 @@ type WithImagePreview = DownscaleResult & { fileName: string };
 
 export default function UploadPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [app, setApp]             = useState<ApplicationData>(EMPTY_APP);
   const [imported, setImported]   = useState(false);
   const [image, setImage]         = useState<WithImagePreview | null>(null);
@@ -55,15 +57,39 @@ export default function UploadPage() {
   const [touched, setTouched]     = useState<Record<string, boolean>>({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
-  // Fetch the curated list of sample COLAs (9 synthetic + 10 real) on mount.
+  // Fetch the curated picker subset on mount + kick the Modal container
+  // awake so it's warm by the time the agent clicks Verify.
   const [samples, setSamples]     = useState<SampleSummary[]>([]);
   const [samplesError, setSamplesError] = useState<string | null>(null);
   const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
   useEffect(() => {
+    preWarmModal();
     fetchSamples()
       .then(setSamples)
       .catch(err => setSamplesError(err instanceof Error ? err.message : String(err)));
   }, []);
+
+  // Deep-link from /samples gallery: ?sample=<id>. We resolve against the
+  // full sample universe (not just the picker) so any card in the gallery
+  // can pre-fill the form, even ones the picker doesn't surface.
+  const preloadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = searchParams.get('sample');
+    if (!id || preloadedRef.current === id) return;
+    preloadedRef.current = id;
+    // Try the curated picker list first (cheap, already loaded). Fall
+    // back to fetching the full set so gallery deep-links always work.
+    const hit = samples.find(s => s.id === id);
+    const resolve: Promise<SampleSummary | undefined> = hit
+      ? Promise.resolve(hit)
+      : fetchAllSamples().then(list => list.find(s => s.id === id));
+    resolve.then(s => {
+      if (s) loadSample(s);
+      // Clear the query param so a refresh doesn't re-trigger the load.
+      setSearchParams({}, { replace: true });
+    }).catch(err => setSamplesError(err instanceof Error ? err.message : String(err)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, samples]);
 
   const required = useMemo<ApplicationKey[]>(
     () => requiredFields(app.beverageType, { imported, containsAddedFlavors: false }) as ApplicationKey[],
@@ -181,28 +207,34 @@ export default function UploadPage() {
     <form className="container" onSubmit={handleSubmit} noValidate>
       <h1>Verify a label</h1>
       <p style={{ fontSize: 'var(--fs-18)', color: 'var(--color-ink-muted)', marginBottom: 24, maxWidth: 'none' }}>
-        Pick a saved COLA below to load a paired application + label, or paste
-        in your own. We'll compare every required field, audit the Government
-        Warning, and flag anything that needs your attention.
+        Browse the saved COLA samples to load a paired application + label, or
+        drop your own. We'll compare every required field, audit the
+        Government Warning, and flag anything that needs your attention.
       </p>
 
-      <SamplePicker
-        samples={samples}
-        error={samplesError}
-        loadingId={loadingSampleId}
-        onPick={loadSample}
-      />
+      {samplesError && (
+        <div style={{ marginBottom: 16 }}>
+          <Alert variant="error" title="Couldn't load samples">{samplesError}</Alert>
+        </div>
+      )}
 
       <div className="two-col">
         <section aria-labelledby="sec-upload">
           <h2 id="sec-upload" style={{ color: 'var(--color-ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 12, fontWeight: 700 }}>Label image</h2>
+          {loadingSampleId && (
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--color-ink-muted)' }}>
+              Loading sample {loadingSampleId}…
+            </p>
+          )}
           {!image && !optimizing && (
             <FileDropzone
               accept="image/jpeg,image/png"
               onFiles={handleFiles}
-              label="Or drop your own label image"
+              label="Drop a label image here"
               hint="JPEG or PNG, up to 20 MB."
-              buttonLabel="Choose a file…"
+              buttonLabel="Browse sample labels"
+              onBrowse={() => navigate('/samples')}
+              pickerFallbackLabel="Or pick a file from your computer"
             />
           )}
 
@@ -417,214 +449,102 @@ function FormInput({ keyName, placeholder, required, app, setApp, touched, setTo
 function ImagePreview({ image, onReplace }: { image: WithImagePreview; onReplace: () => void }) {
   const saved = image.originalSize > 0 ? Math.round((1 - image.optimizedSize / image.originalSize) * 100) : 0;
   const shrunk = image.optimizedSize < image.originalSize;
+  const [zoomed, setZoomed] = useState(false);
   return (
     <div className="card" style={{ padding: 16 }}>
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <button
+        type="button"
+        onClick={() => setZoomed(true)}
+        aria-label="Open larger view of the label image"
+        style={{
+          // Big readable preview — the agent uses this to read ABV /
+          // Net contents / Government Warning text off TTB-live labels
+          // where those fields aren't carried on the form.
+          display: 'block', width: '100%',
+          padding: 0, border: '1px solid var(--color-line)', borderRadius: 4,
+          background: '#f5f5f5', cursor: 'zoom-in', overflow: 'hidden',
+        }}
+      >
         <img
           src={image.dataUrl}
-          alt={`Preview of ${image.fileName}`}
+          alt={`Preview of ${image.fileName} — click to enlarge`}
           style={{
-            width: 120, height: 160, objectFit: 'cover', borderRadius: 4,
-            border: '1px solid var(--color-line)', flexShrink: 0, background: '#f5f5f5',
+            display: 'block', width: '100%', maxHeight: 520,
+            // contain (not cover) so warning text and ABV aren't cropped out.
+            objectFit: 'contain', background: '#f5f5f5',
           }}
         />
-        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-          <p style={{
-            margin: 0, fontWeight: 700, fontSize: 'var(--fs-16)',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>{image.fileName}</p>
-          <p style={{ margin: '4px 0 12px', color: 'var(--color-ink-muted)', fontSize: 14 }}>
-            {image.originalWidth}×{image.originalHeight} → {image.width}×{image.height} px
-          </p>
-          <div style={{
-            background: shrunk ? 'var(--status-match-bg)' : 'var(--status-info-bg)',
-            border: '1px solid ' + (shrunk ? 'var(--status-match-border)' : 'var(--status-info-border)'),
-            borderRadius: 4, padding: '8px 12px',
-            fontSize: 14, color: shrunk ? 'var(--status-match-fg)' : 'var(--status-info-fg)',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <IconCheck size={16} aria-hidden="true" />
-            {shrunk ? (
-              <span><strong>Optimized for fast upload</strong> — was {formatBytes(image.originalSize)}, now {formatBytes(image.optimizedSize)} ({saved}% smaller).</span>
-            ) : (
-              <span><strong>Already small</strong> — {formatBytes(image.optimizedSize)}. Skipped recompression.</span>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button
-              type="button"
-              className="btn btn--secondary"
-              onClick={onReplace}
-              style={{ minHeight: 36, padding: '0 12px', fontSize: 14 }}
-            >
-              Replace image
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface SamplePickerProps {
-  samples: SampleSummary[];
-  error: string | null;
-  loadingId: string | null;
-  onPick: (s: SampleSummary) => void | Promise<void>;
-}
-
-const VERDICT_TINT: Record<string, { bg: string; fg: string; label: string }> = {
-  'auto-pass':     { bg: 'var(--status-match-bg)',  fg: 'var(--status-match-fg)',  label: 'auto-pass' },
-  'needs-confirm': { bg: 'var(--status-likely-bg)', fg: 'var(--status-likely-fg)', label: 'needs-confirm' },
-  'needs-review':  { bg: 'var(--status-flag-bg)',   fg: 'var(--status-flag-fg)',   label: 'needs-review' },
-};
-
-function SamplePicker({ samples, error, loadingId, onPick }: SamplePickerProps) {
-  const [query, setQuery]   = useState('');
-  const [bucket, setBucket] = useState<'all' | 'auto-pass' | 'needs-confirm' | 'needs-review'>('all');
-  const [showAll, setShowAll] = useState(false);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return samples.filter(s => {
-      if (bucket !== 'all' && s.expectedOutcome !== bucket) return false;
-      if (!q) return true;
-      const hay = [
-        s.applicationData.brandName,
-        s.applicationData.classType,
-        s.applicationData.beverageType,
-        s.applicationData.countryOfOrigin || '',
-        s.applicationData.colaNumber || '',
-      ].join(' ').toLowerCase();
-      return hay.includes(q);
-    });
-  }, [samples, query, bucket]);
-
-  const visible = showAll ? filtered : filtered.slice(0, 18);
-
-  return (
-    <div className="card" style={{
-      padding: 16, marginBottom: 24, background: 'var(--color-primary-tint-2)',
-      border: '1px solid var(--color-primary-tint)',
-    }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8 }}>
-        <IconLightning size={18} style={{ color: 'var(--color-primary)' }} />
-        <strong style={{ fontSize: 'var(--fs-16)' }}>Load a sample COLA</strong>
-        <span style={{ fontSize: 12, color: 'var(--color-ink-subtle)', marginLeft: 'auto' }}>
-          {samples.length} real labels available
-        </span>
-      </div>
-      <p style={{ margin: '0 0 8px', fontSize: 'var(--fs-14)', color: 'var(--color-ink-muted)' }}>
-        Real TTB-approved labels from the public COLA registry. Pick one to load both
-        the artwork and its paired Form 5100.31 application data. In production this list
-        comes from the TTB filing system directly.
-      </p>
-      <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--color-ink-subtle)' }}>
-        The verdict pill is a typical-output hint — Claude is non-deterministic,
-        so the actual run may land one bucket up or down. HITL is the safety net.
-      </p>
-
-      {error && (
-        <Alert variant="error" title="Couldn't load samples">{error}</Alert>
-      )}
-
-      {!error && samples.length === 0 && (
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-ink-subtle)' }}>Loading…</p>
-      )}
-
-      {samples.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            type="search"
-            placeholder="Search brand, class, country…"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
+      </button>
+      {zoomed && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Enlarged label image"
+          onClick={() => setZoomed(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 24, cursor: 'zoom-out',
+          }}
+        >
+          <img
+            src={image.dataUrl}
+            alt={image.fileName}
             style={{
-              flex: '1 1 220px', minWidth: 0,
-              padding: '8px 12px', fontSize: 14,
-              border: '1px solid var(--color-line-strong)', borderRadius: 4,
-              background: '#fff',
+              maxWidth: '95vw', maxHeight: '95vh',
+              objectFit: 'contain',
+              background: '#fff', borderRadius: 4,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
             }}
           />
-          <div role="tablist" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-            {([
-              { k: 'all',           label: 'All' },
-              { k: 'auto-pass',     label: 'Auto-pass' },
-              { k: 'needs-confirm', label: 'Confirm' },
-              { k: 'needs-review',  label: 'Review' },
-            ] as const).map(opt => (
-              <button
-                key={opt.k}
-                type="button"
-                onClick={() => setBucket(opt.k)}
-                style={{
-                  padding: '6px 10px', fontSize: 12, fontWeight: 600,
-                  border: '1px solid ' + (bucket === opt.k ? 'var(--color-primary)' : 'var(--color-line-strong)'),
-                  background: bucket === opt.k ? 'var(--color-primary)' : '#fff',
-                  color: bucket === opt.k ? '#fff' : 'var(--color-ink)',
-                  borderRadius: 4, cursor: 'pointer',
-                }}
-              >{opt.label}</button>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setZoomed(false); }}
+            aria-label="Close enlarged view"
+            style={{
+              position: 'absolute', top: 16, right: 16,
+              padding: '8px 16px', fontSize: 14, fontWeight: 600,
+              background: '#fff', color: 'var(--color-ink)',
+              border: 'none', borderRadius: 4, cursor: 'pointer',
+            }}
+          >Close ✕</button>
         </div>
       )}
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {visible.map(s => {
-          const tint = VERDICT_TINT[s.expectedOutcome] || VERDICT_TINT['auto-pass'];
-          const isLoading = loadingId === s.id;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              className="btn btn--secondary"
-              style={{
-                minHeight: 36, padding: '6px 12px', fontSize: 13,
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                opacity: isLoading ? 0.6 : 1,
-              }}
-              disabled={loadingId !== null}
-              title={s.note}
-              onClick={() => onPick(s)}
-            >
-              <span style={{ fontWeight: 600 }}>{s.applicationData.brandName}</span>
-              <span style={{
-                fontSize: 11, padding: '2px 6px', borderRadius: 999,
-                background: tint.bg, color: tint.fg, fontWeight: 600,
-                textTransform: 'lowercase',
-              }}>{tint.label}</span>
-              {isLoading && <span style={{ fontSize: 11, color: 'var(--color-ink-subtle)' }}>loading…</span>}
-            </button>
-          );
-        })}
+      <div style={{ marginTop: 12 }}>
+        <p style={{
+          margin: 0, fontWeight: 700, fontSize: 'var(--fs-16)',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>{image.fileName}</p>
+        <p style={{ margin: '4px 0 12px', color: 'var(--color-ink-muted)', fontSize: 14 }}>
+          {image.originalWidth}×{image.originalHeight} → {image.width}×{image.height} px
+        </p>
+        <div style={{
+          background: shrunk ? 'var(--status-match-bg)' : 'var(--status-info-bg)',
+          border: '1px solid ' + (shrunk ? 'var(--status-match-border)' : 'var(--status-info-border)'),
+          borderRadius: 4, padding: '8px 12px',
+          fontSize: 14, color: shrunk ? 'var(--status-match-fg)' : 'var(--status-info-fg)',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <IconCheck size={16} aria-hidden="true" />
+          {shrunk ? (
+            <span><strong>Optimized for fast upload</strong> — was {formatBytes(image.originalSize)}, now {formatBytes(image.optimizedSize)} ({saved}% smaller).</span>
+          ) : (
+            <span><strong>Already small</strong> — {formatBytes(image.optimizedSize)}. Skipped recompression.</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={onReplace}
+            style={{ minHeight: 36, padding: '0 12px', fontSize: 14 }}
+          >
+            Replace image
+          </button>
+        </div>
       </div>
-
-      {filtered.length > visible.length && (
-        <p style={{ margin: '12px 0 0', fontSize: 13 }}>
-          Showing {visible.length} of {filtered.length}.{' '}
-          <button
-            type="button"
-            onClick={() => setShowAll(true)}
-            style={{
-              background: 'none', border: 'none', color: 'var(--color-primary)',
-              fontWeight: 600, cursor: 'pointer', padding: 0,
-            }}
-          >Show all {filtered.length}</button>
-        </p>
-      )}
-      {showAll && filtered.length > 18 && (
-        <p style={{ margin: '12px 0 0', fontSize: 13 }}>
-          <button
-            type="button"
-            onClick={() => setShowAll(false)}
-            style={{
-              background: 'none', border: 'none', color: 'var(--color-primary)',
-              fontWeight: 600, cursor: 'pointer', padding: 0,
-            }}
-          >Collapse</button>
-        </p>
-      )}
     </div>
   );
 }
+
