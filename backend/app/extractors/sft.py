@@ -153,7 +153,8 @@ class _QwenLoader:
         # produces 4000+ visual tokens → quadratic-slow attention. 640x640
         # area ≈ 400 visual tokens, plenty for label OCR. Matches the
         # _resize_for_eval in notebooks/eval_qwen_drive.ipynb and the
-        # equivalent in backend/modal_deploy/serve_qwen.py.
+        # equivalent in backend/modal_deploy/serve_qwen_v2.py (the active
+        # production endpoint; v1 lives in archive/modal_deploy/).
         MAX_PIXELS = 640 * 640
         w, h = img.size
         if w * h > MAX_PIXELS:

@@ -108,7 +108,7 @@ It's idempotent — safely re-applies to every notebook in the inventory.
 ## Honest caveats
 
 - **Distillation ceiling**: training against COLA Cloud's auto-generated labels caps quality at the labels' ~5-10% error rate. To push past, hand-verify ~100 hard cases (brand-vs-fanciful, multi-language COO, partial warnings) and append to the training set.
-- **GPU required at serve time**: production deploy options are Modal/Replicate/Banana (cheap, scale-to-zero) or on-prem GPU inside the agency boundary (matches Treasury's FedRAMP/Azure-Gov pattern). See `backend/modal_deploy/serve_qwen.py` for a ready-to-deploy Modal script.
+- **GPU required at serve time**: production deploy options are Modal/Replicate/Banana (cheap, scale-to-zero) or on-prem GPU inside the agency boundary (matches Treasury's FedRAMP/Azure-Gov pattern). See `backend/modal_deploy/serve_qwen_v2.py` for the active production deploy script (v1 is preserved at `archive/modal_deploy/serve_qwen.py`).
 
 ## What we tried that didn't work (for posterity)
 

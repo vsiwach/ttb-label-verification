@@ -11,7 +11,9 @@ Warning verbatim + ABV + net contents), and Modal Tesseract CPU
 (Haiku alone) — useful for outage-mode demos.
 
 For the fully on-prem variant (no external API calls at all), see
-`backend/modal_deploy/serve_full_app.py` and the Modal section of `README.md`.
+`archive/modal_deploy/serve_full_app.py` (preserved in the archive
+since the live deployment runs the hybrid) and the Modal section
+of `README.md`.
 
 ## What gets deployed
 
@@ -97,7 +99,7 @@ In the production three-way fan-out, the split is intentional:
 - **Anthropic Haiku** receives the image to read the Government Warning verbatim text (fixed by 27 CFR 16.21, public, non-PII) plus the two small numerics ABV and net contents.
 - **Modal Tesseract** (CPU container) receives the image for a deterministic bbox + EXIF DPI extraction — no LLM in the loop.
 
-For TTB submissions that must keep ALL fields inside a single accreditation boundary, switch to the fully on-prem deployment in `backend/modal_deploy/serve_full_app.py` — no Anthropic call at all; Qwen v2 LoRA covers all 6 fields with reduced accuracy on the 2 non-trained ones until more agency data lands.
+For TTB submissions that must keep ALL fields inside a single accreditation boundary, switch to the fully on-prem deployment in `archive/modal_deploy/serve_full_app.py` (preserved as an alternative topology — not the active deploy) — no Anthropic call at all; Qwen v2 LoRA covers all 6 fields with reduced accuracy on the 2 non-trained ones until more agency data lands.
 
 ## Cost
 

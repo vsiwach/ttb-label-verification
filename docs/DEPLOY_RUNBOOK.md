@@ -66,8 +66,10 @@ modal deploy backend/modal_deploy/serve_qwen_v2.py
 ```
 
 This is the production app (`ttb-qwen-extractor-v2`). `make modal-deploy`
-is still wired to the v1 `serve_qwen.py` for legacy / head-to-head eval;
-the live production stack uses v2.
+now deploys v2 + the CPU-only Tesseract sibling (`ttb-tesseract`); the
+v1 endpoint moved to `archive/modal_deploy/serve_qwen.py` and is only
+relevant for re-running the head-to-head eval (deploy it manually with
+`modal deploy archive/modal_deploy/serve_qwen.py`).
 
 First deploy builds the Docker image (transformers, peft, torch — ~3 GB).
 Modal caches the image, so subsequent deploys are fast.
@@ -182,7 +184,7 @@ For a real deploy, see (not yet written): docs/VERCEL_RUNBOOK.md
 | `Unauthorized` on `modal deploy` | Token expired or missing | `modal token new` |
 | `Volume not found: ttb-qwen-adapter` | Forgot Step 1 | `make modal-upload-adapter` |
 | Cold-start timeout (>60s on first request) | Qwen base HF download (~16 GB) on first container | Wait it out; second request is fast. HF cache volume persists across restarts. |
-| `502 from Modal endpoint` | Container OOM (rare on A10G with BF16 + 24 GB) | Switch to A100 in `serve_qwen.py` (`gpu="A100"`) |
+| `502 from Modal endpoint` | Container OOM (rare on A100 with BF16) | Adjust `gpu=` in `backend/modal_deploy/serve_qwen_v2.py` (production already runs A100) |
 | Backend `InferenceError: timeout after 60s` | First request hit cold start past timeout | Set `MODAL_TIMEOUT=120` in `backend/.env`, retry |
 
 ## Rollback

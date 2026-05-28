@@ -67,22 +67,17 @@ serve-modal:
 	cd backend && set -a && . ./.env && set +a && INFERENCE_MODE=modal ANTHROPIC_API_KEY="" \
 	    ../$(UVICORN) app.main:app --reload --port $(PORT)
 
-# Deploy the Qwen extractor + FastAPI backend to Modal. One-time bootstrap:
+# Deploy the v2 Qwen LoRA + Tesseract endpoints to Modal.
+# One-time bootstrap:
 #   $(VENV)/bin/pip install modal
 #   $(VENV)/bin/modal token new
 modal-deploy:
-	$(VENV)/bin/modal deploy backend/modal_deploy/serve_qwen.py
+	$(VENV)/bin/modal deploy backend/modal_deploy/serve_qwen_v2.py
+	$(VENV)/bin/modal deploy backend/modal_deploy/serve_tesseract.py
 
-# Deploy the WHOLE MVP (frontend + backend + Qwen) as a single Modal
-# container. Privacy-first: no external API calls. Prereqs:
-#   1. npm run build (produces dist/)
-#   2. make modal-upload-adapter SFT_MODEL_DIR=backend/models/qwen2_5_vl_7b_v2
-#      (or whatever path holds your v2.1 adapter)
-#
-# Prints an HTTPS URL; that's the link to send Treasury. Smoke-test it
-# with: make smoke-deployed URL=<that-url>
-modal-deploy-mvp: dist
-	$(VENV)/bin/modal deploy backend/modal_deploy/serve_full_app.py
+# Legacy v1 endpoint + whole-app deploy preserved in archive/modal_deploy/
+# (not actively used by the deployed hybrid). To redeploy v1 for a head-
+# to-head: $(VENV)/bin/modal deploy archive/modal_deploy/serve_qwen.py
 
 # Convenience: build the frontend first if dist/ is missing.
 dist:
@@ -126,7 +121,7 @@ modal-upload-train-data:
 #    `modal app logs ttb-qwen-train-v2` to reattach.
 TRAIN_EPOCHS ?= 1
 modal-train:
-	$(VENV)/bin/modal run backend/modal_deploy/train_qwen.py --epochs $(TRAIN_EPOCHS)
+	$(VENV)/bin/modal run archive/modal_deploy/train_qwen.py --epochs $(TRAIN_EPOCHS)
 
 # 3. Download the v2 adapter back to the Mac. Lands at backend/models/
 #    qwen2_5_vl_7b_v2/adapter/ so v1 and v2 coexist for the head-to-head.

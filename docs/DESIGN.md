@@ -657,7 +657,7 @@ The PRD makes streaming a central latency strategy (#4 in §11). Implementation 
 
 **Below PRD spec (3):** No streaming on the real backend; no JSON/CSV/printable export (auto-drafted text rendered only); F7 partial; F11 partial.
 
-**Beyond PRD spec (2):** Modal-deployed production inference path (`backend/modal_deploy/serve_qwen.py`); end-to-end apples-to-apples eval framework with 4 separate adapters (Qwen / InternVL3 / Donut training notebooks + Modal deploy + replay scoring).
+**Beyond PRD spec (2):** Modal-deployed production inference path (`backend/modal_deploy/serve_qwen_v2.py` + `serve_tesseract.py`); end-to-end apples-to-apples eval framework with 4 separate adapters (Qwen / InternVL3 / Donut training notebooks — InternVL3/Donut now in `archive/notebooks/` since Qwen won + Modal deploy + replay scoring).
 
 The honest framing for the TTB conversation: **every P0 requirement is met; the divergences are documented, justified, and reversible.** The architecture (rules engine + swappable extractor) means each divergence — restoring USWDS, adding streaming, exporting JSON/CSV, swapping back to Phi-3.5-vision — is a small frontend or backend change, not a rewrite.
 
@@ -682,7 +682,8 @@ backend/
 │   ├── image_pipeline.py             # Pillow validation + ephemeral crops
 │   ├── extractors/                   # 6 swappable implementations
 │   └── rules/                        # deterministic 27 CFR engine
-├── modal_deploy/serve_qwen.py        # Qwen-on-Modal production endpoint
+├── modal_deploy/serve_qwen_v2.py     # Qwen v2 LoRA production endpoint
+│   modal_deploy/serve_tesseract.py   # CPU-only Tesseract bbox + EXIF DPI
 ├── tests/                            # 115 tests
 └── models/qwen2_5_vl_7b/adapter/     # LoRA weights (gitignored, 190 MB)
 
