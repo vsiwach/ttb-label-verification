@@ -640,7 +640,6 @@ make eval-compare-all     # side-by-side table of all model reports
 | [`docs/COVERAGE.md`](docs/COVERAGE.md) | Per-field / per-rule coverage matrix — what the engine decides vs flags for human review |
 | [`docs/MODEL_PRIORITY.md`](docs/MODEL_PRIORITY.md) | Model selection framework (Qwen vs InternVL3 vs Donut vs Claude) |
 | [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md) | Step-by-step Modal deployment (~30 min from clean checkout to live endpoint) |
-| [`docs/SUBMISSION_EMAIL.md`](docs/SUBMISSION_EMAIL.md) | Delivery email — 250-word summary, one-screen read |
 | [`src/api/types.ts`](src/api/types.ts) | **API contract** — TypeScript types mirrored by [`backend/app/models.py`](backend/app/models.py) Pydantic models; source of truth |
 | [`test/eval/QWEN_VS_CLAUDE.md`](test/eval/QWEN_VS_CLAUDE.md) | Apples-to-apples eval result + strategic implications |
 | [`backend/README.md`](backend/README.md) | Backend-specific quick start + inference mode details |
