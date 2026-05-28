@@ -401,8 +401,8 @@ Formatting requirements (27 CFR 16.22): "GOVERNMENT WARNING" in **capital letter
 
 ### D. Sources & Links
 
-- TTB — Labeling resources and COLAs Online / myTTB: https://www.ttb.gov/labeling and https://www.ttb.gov/online-services
-- TTB COLA public registry: https://www.ttb.gov/labeling/cola-registry
+- TTB — Labeling resources and COLAs Online / myTTB: https://www.ttb.gov/regulated-commodities/beverage-alcohol/labeling-and-formulation and https://www.ttb.gov/online-services
+- TTB COLA public registry: https://www.ttb.gov/regulated-commodities/labeling/cola-public-registry
 - eCFR — Title 27 (Alcohol, Tobacco Products and Firearms): https://www.ecfr.gov/current/title-27
 - eCFR — 27 CFR Part 16 (Health Warning Statement): https://www.ecfr.gov/current/title-27/chapter-I/subchapter-A/part-16
 - Section508.gov (federal accessibility): https://www.section508.gov

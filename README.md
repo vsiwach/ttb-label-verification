@@ -96,8 +96,8 @@ This is the empirical case for the on-prem path: agency-curated training
 data → fine-tune on your own GPU → outperform the frontier API while
 keeping data inside the boundary. Take-home docs:
 
-- Full head-to-head eval: [`test/eval/data/holdout_eval/v1_vs_v2_comparison.md`](test/eval/data/holdout_eval/v1_vs_v2_comparison.md)
-- Earlier 90-image apples-to-apples: [`test/eval/QWEN_VS_CLAUDE.md`](test/eval/QWEN_VS_CLAUDE.md)
+- Apples-to-apples 90-image eval: [`test/eval/QWEN_VS_CLAUDE.md`](test/eval/QWEN_VS_CLAUDE.md)
+- Evaluation methodology: [`test/EVALUATION.md`](test/EVALUATION.md)
 
 ### Why v2 beats v1 (which beat nothing)
 
@@ -571,10 +571,8 @@ Outputs:
 | `/upload` (and `/`) | Drag a label image, downscale on-device, enter the application data, submit |
 | `/result` | Side-by-side label + field verdicts, Government Warning panel, evidence crops, HITL decision actions |
 | `/batch` | Drop hundreds of labels; triage dashboard groups them by verdict |
-| `/review` | Keyboard-driven "Confirm next" flow — step through attention items in seconds |
-| `/system` | Architecture explainer, 3-state status model, TypeScript API contract |
-| `/styleguide` | Component library demo |
-| `/api-demo` | Live request/response viewer for the streaming mock |
+| `/review` | Unified queue — keyboard-driven (A/R/I/N/Esc) + visible Approve/Reject/Request-image buttons + notes textarea |
+| `/samples` | Sample gallery — pick a single label or multi-select for batch review (paired application data ships with each sample) |
 
 ---
 
@@ -642,7 +640,8 @@ make eval-compare-all     # side-by-side table of all model reports
 | [`docs/COVERAGE.md`](docs/COVERAGE.md) | Per-field / per-rule coverage matrix — what the engine decides vs flags for human review |
 | [`docs/MODEL_PRIORITY.md`](docs/MODEL_PRIORITY.md) | Model selection framework (Qwen vs InternVL3 vs Donut vs Claude) |
 | [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md) | Step-by-step Modal deployment (~30 min from clean checkout to live endpoint) |
-| [`docs/TTB_API_Contract_Reference.md`](docs/TTB_API_Contract_Reference.md) | API contract: request/response schemas, error codes, examples |
+| [`docs/SUBMISSION_EMAIL.md`](docs/SUBMISSION_EMAIL.md) | Delivery email — 250-word summary, one-screen read |
+| [`src/api/types.ts`](src/api/types.ts) | **API contract** — TypeScript types mirrored by [`backend/app/models.py`](backend/app/models.py) Pydantic models; source of truth |
 | [`test/eval/QWEN_VS_CLAUDE.md`](test/eval/QWEN_VS_CLAUDE.md) | Apples-to-apples eval result + strategic implications |
 | [`backend/README.md`](backend/README.md) | Backend-specific quick start + inference mode details |
 | [`notebooks/README.md`](notebooks/README.md) | SFT training + eval notebooks (Colab-runnable) |

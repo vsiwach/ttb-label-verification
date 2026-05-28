@@ -102,10 +102,10 @@ SPA built to a static bundle (Vercel-deployable).
 | Route | Page component | Purpose |
 |---|---|---|
 | `/` and `/upload` | `UploadPage.tsx` | Single-label submission: image dropzone + COLA application form |
-| `/batch` | `BatchPage.tsx` | Batch dashboard: grouped item counts, drill-down into each group |
-| `/samples` | `SamplesPage.tsx` | Sample-label gallery: single click → `/upload?sample=<id>`; with `?for=batch`, multi-select queues into `/batch?samples=<ids>` |
-| `/system` | `SystemPage.tsx` | Architecture explainer + system status |
-| `/styleguide`, `/api-demo` | (dev pages) | Component gallery + API request/response viewer |
+| `/result`         | `ResultPage.tsx`   | Streaming result view — fields fill in progressively, then warning panel + verdict bucket |
+| `/batch`          | `BatchPage.tsx`    | Batch dashboard: grouped item counts, drill-down into each group |
+| `/review`         | `ReviewPage.tsx`   | Unified queue (severity-sorted across all items) with visible Approve/Reject/Request-image buttons + notes + keyboard shortcuts |
+| `/samples`        | `SamplesPage.tsx`  | Sample-label gallery: single click → `/upload?sample=<id>`; with `?for=batch`, multi-select queues into `/batch?samples=<ids>` |
 
 No `Samples` link in the header — the gallery is reached via the "Browse sample labels" button on the FileDropzone (single mode) or `/samples?for=batch` (multi-select for batch).
 
