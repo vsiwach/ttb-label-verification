@@ -137,6 +137,21 @@ export default function BatchPage() {
     if (opts?.dataUrls) {
       for (const [k, v] of Object.entries(opts.dataUrls)) imageDataUrlByFile.current.set(k, v);
     }
+    // Drop path: the FileDropzone calls handleFiles without dataUrls, so
+    // the /review page later has nothing to render as the label preview
+    // (just a broken-image icon). Read each File into a data URL here
+    // so the unified review queue can show the actual artwork even for
+    // dropped files. Skip ones already captured by the sample picker.
+    for (const f of list) {
+      if (imageDataUrlByFile.current.has(f.name)) continue;
+      blobToDataUrl(f).then(url => {
+        imageDataUrlByFile.current.set(f.name, url);
+      }).catch(() => {
+        // Non-fatal — if a file can't be read, the review page falls
+        // back to thumbnailUrl or shows the file name. No need to
+        // surface this since the verification flow itself still works.
+      });
+    }
   }
   function clearFiles() {
     setFiles([]); setItems([]); setPhase('upload'); setError(null);
