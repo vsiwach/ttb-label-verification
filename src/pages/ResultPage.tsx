@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import type { ImageQuality, VerificationField } from '../api/types';
 import { verifyLabel } from '../api/client';
 import { verifyStore, useVerifyStore, type UploadedImage } from '../store/verifyStore';
@@ -35,6 +35,13 @@ function statusCounts(fields: VerificationField[]) {
 
 export default function ResultPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // BatchPage.openItem navigates here with { state: { fromBatch: true } }
+  // so we know this view is one item of a bigger batch — the header
+  // shows a "Back to batch dashboard" link instead of the usual
+  // "Back to upload". Without this the agent has no way back to the
+  // batch view short of the browser back button.
+  const fromBatch = (location.state as { fromBatch?: boolean } | null)?.fromBatch === true;
   const state = useVerifyStore();
   const { image, applicationData, status, result, error } = state;
 
@@ -156,13 +163,25 @@ export default function ResultPage() {
 
   return (
     <div className="container">
-      <Link
-        to="/upload"
-        onClick={() => { verifyStore.reset(); startedRef.current = false; }}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, fontWeight: 600 }}
-      >
-        <IconArrowL size={16} /> Back to upload
-      </Link>
+      {fromBatch ? (
+        <Link
+          to="/batch"
+          // Don't reset verifyStore — BatchPage owns the queue + per-
+          // file maps, so the dashboard re-renders with the existing
+          // batch items intact (no re-processing needed).
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, fontWeight: 600 }}
+        >
+          <IconArrowL size={16} /> Back to batch dashboard
+        </Link>
+      ) : (
+        <Link
+          to="/upload"
+          onClick={() => { verifyStore.reset(); startedRef.current = false; }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, fontWeight: 600 }}
+        >
+          <IconArrowL size={16} /> Back to upload
+        </Link>
+      )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 24, flexWrap: 'wrap', marginBottom: 8 }}>
         <div>

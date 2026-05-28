@@ -234,7 +234,10 @@ export default function BatchPage() {
       },
       error: null,
     });
-    navigate('/result');
+    // Hand a fromBatch hint to /result so it can render a visible
+    // "Back to batch" link — the only other way back is the browser
+    // back button which isn't discoverable.
+    navigate('/result', { state: { fromBatch: true } });
   }
 
   function startReview() {

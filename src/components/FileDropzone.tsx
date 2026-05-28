@@ -103,19 +103,12 @@ export default function FileDropzone({
           onChange={(e) => handle(e.target.files)}
         />
       </div>
-      {onBrowse && (
-        <p style={{ margin: '8px 0 0', textAlign: 'center', fontSize: 13 }}>
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            style={{
-              background: 'none', border: 'none', padding: 0,
-              color: 'var(--color-primary)', fontWeight: 600,
-              cursor: 'pointer', textDecoration: 'underline',
-            }}
-          >{pickerFallbackLabel}</button>
-        </p>
-      )}
+      {/* The fallback "Or pick a file from your computer" link used to
+       *  appear here whenever onBrowse was set. Removed at agent request
+       *  — the dropzone already accepts drag-and-drop for own files and
+       *  the small underlined link confused the primary "Browse sample
+       *  labels" affordance. Keep pickerFallbackLabel in the prop API
+       *  so callers can opt in later if needed, but don't render it. */}
       {error && (
         <div role="alert" className="field__error" style={{ marginTop: 12 }}>
           <IconWarn size={16} aria-hidden="true" />
