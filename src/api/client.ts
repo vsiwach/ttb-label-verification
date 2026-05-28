@@ -15,6 +15,8 @@
 import type {
   ApplicationData,
   BatchItemResult,
+  GovernmentWarningAnalysis,
+  ImageQuality,
   VerificationField,
   VerificationResult,
   VerifyLabelOptions,
@@ -49,10 +51,16 @@ export type OnFieldCallback = (
 /**
  * Verify a single label.
  *
- * The backend returns the full VerificationResult as one JSON response.
- * For UI compatibility, this client emits each field via `onField` after
- * the result lands, then fires `onGovernmentWarning` and `onImageQuality`.
- * (True server-side streaming is on the roadmap — N1 in DESIGN.md §10.)
+ * When any callback is provided (onField / opts.onGovernmentWarning /
+ * opts.onImageQuality) this calls the streaming endpoint
+ * (/api/verify/stream) and fires callbacks as NDJSON events arrive —
+ * image_quality at ~200 ms, Qwen-owned fields at ~3 s, Haiku-owned
+ * fields at ~3.5 s, warning + done at ~5 s. The promise resolves with
+ * the assembled VerificationResult after the 'done' event.
+ *
+ * When no callbacks are provided this falls back to the single-JSON
+ * /api/verify endpoint — the path used by verifyBatch() below where
+ * each fan-out call wants one atomic result, not a stream.
  */
 export async function verifyLabel(
   image: Blob | string | null,
@@ -67,25 +75,103 @@ export async function verifyLabel(
   else if (typeof image === 'string') body.append('image', image);
   body.append('applicationData', JSON.stringify(applicationData));
 
-  const res = await fetch(`${API_BASE_URL}/verify`, { method: 'POST', body });
-  if (!res.ok) {
+  const wantsStreaming = !!(onField || opts.onGovernmentWarning || opts.onImageQuality);
+  if (!wantsStreaming) {
+    const res = await fetch(`${API_BASE_URL}/verify`, { method: 'POST', body });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`verify failed: ${res.status} ${detail}`);
+    }
+    return (await res.json()) as VerificationResult;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/verify/stream`, { method: 'POST', body });
+  if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => '');
     throw new Error(`verify failed: ${res.status} ${detail}`);
   }
-  const result = (await res.json()) as VerificationResult;
 
-  // Replay fields one-by-one so the UI still gets the streamed-feel effect
-  // even though the wire response is a single object. Sub-50ms total.
-  if (onField) {
-    const fields = result.fields;
-    for (let i = 0; i < fields.length; i++) onField(fields[i], i, fields.length);
+  // Assemble the final result from streamed events.
+  const fields: VerificationField[] = [];
+  let governmentWarning: GovernmentWarningAnalysis | undefined;
+  let imageQuality: ImageQuality | undefined;
+  let timing: VerificationResult['timing'];
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let totalFieldsHint = 0;
+
+  const handleEvent = (event: string, data: Record<string, unknown>): void => {
+    switch (event) {
+      case 'image_quality': {
+        imageQuality = data as unknown as ImageQuality;
+        opts.onImageQuality?.(imageQuality);
+        break;
+      }
+      case 'field': {
+        const f = data as unknown as VerificationField;
+        fields.push(f);
+        totalFieldsHint = Math.max(totalFieldsHint, fields.length);
+        onField?.(f, fields.length - 1, totalFieldsHint);
+        break;
+      }
+      case 'warning': {
+        governmentWarning = data as unknown as GovernmentWarningAnalysis;
+        opts.onGovernmentWarning?.(governmentWarning);
+        break;
+      }
+      case 'done': {
+        if (data.imageQuality && !imageQuality) imageQuality = data.imageQuality as ImageQuality;
+        if (data.timing) timing = data.timing as VerificationResult['timing'];
+        break;
+      }
+      case 'error': {
+        throw new Error(`verify failed: ${String((data as { detail?: string }).detail || 'unknown')}`);
+      }
+    }
+  };
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl = buffer.indexOf('\n');
+    while (nl !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) {
+        const msg = JSON.parse(line) as { event: string; data: Record<string, unknown> };
+        handleEvent(msg.event, msg.data);
+      }
+      nl = buffer.indexOf('\n');
+    }
   }
-  if (opts.onGovernmentWarning && result.governmentWarning) {
-    opts.onGovernmentWarning(result.governmentWarning);
+  // Flush any trailing line that did not end with '\n'.
+  const tail = buffer.trim();
+  if (tail) {
+    const msg = JSON.parse(tail) as { event: string; data: Record<string, unknown> };
+    handleEvent(msg.event, msg.data);
   }
-  if (opts.onImageQuality && result.imageQuality) {
-    opts.onImageQuality(result.imageQuality);
-  }
+
+  // Fallback shapes so callers never see an undefined sub-tree (mirrors
+  // the non-streaming response's required-field contract).
+  const result: VerificationResult = {
+    fields,
+    governmentWarning: governmentWarning ?? {
+      present: false,
+      verbatimMatch: false,
+      casingBoldOk: false,
+      contrastOk: false,
+      separateAndApart: false,
+      detectedText: '',
+      deviations: [],
+      regulation: '27 CFR 16.21/16.22',
+    },
+    imageQuality: imageQuality ?? { score: 1, legible: true },
+    timing,
+  };
   return result;
 }
 

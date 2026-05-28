@@ -77,7 +77,12 @@ _SYSTEM_PROMPT_V2 = (
     # A100 (40GB) for warm Qwen-VL-7B BF16 generate. Empirically:
     #   - A10G: ~5-6s warm
     #   - L4:   ~6.8s warm (Lovelace helps FP8 more than BF16)
-    #   - A100: ~2-3s warm (target)
+    #   - A100: ~3.0-3.2s warm wall (Modal-side); ~5s end-to-end through
+    #           the Vercel fan-out with Haiku parallel
+    #   - H100: tried 2026-05-28; observed ~3s Modal-side (no
+    #           meaningful headroom over A100 for BF16-7B) while costing
+    #           ~40% more per hour. Reverted in favour of /api/verify/stream
+    #           which delivers the perceived-latency win architecturally.
     # Modal hourly rate is ~2.5x A10G but inference completes ~2.5x
     # faster too, so cost per request is comparable while the user-
     # visible warm verify lands decisively under the 5s target.

@@ -20,6 +20,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from .config import settings
 from .extractors import InferenceError, get_extractor
@@ -266,7 +267,8 @@ async def verify(
     applicationData: str = Form(...),
 ) -> VerificationResult:
     """Verify a single label. Returns the FULL VerificationResult as one JSON
-    response (not streamed) — matches the real path in src/api/client.ts."""
+    response (not streamed). Used by the batch fan-out in client.ts and by
+    smoke-test tooling. The streaming variant lives at /api/verify/stream."""
     app_data = _parse_application_data(applicationData)
     image_bytes = await image.read()
     started = time.perf_counter()
@@ -277,6 +279,160 @@ async def verify(
         app_data.brandName, app_data.beverageType, group_for(result), elapsed_ms,
     )
     return result
+
+
+def _ndjson(event: str, data: dict) -> bytes:
+    return (json.dumps({"event": event, "data": data}, default=str) + "\n").encode("utf-8")
+
+
+@app.post("/api/verify/stream")
+async def verify_stream(
+    image: UploadFile = File(...),
+    applicationData: str = Form(...),
+) -> StreamingResponse:
+    """Verify a single label, streaming events as the pipeline progresses.
+
+    Wire format is NDJSON — one JSON object per line:
+        {"event":"image_quality", "data":{...ImageQuality...}}
+        {"event":"field",         "data":{...VerificationField...}}
+        ...
+        {"event":"warning",       "data":{...GovernmentWarningAnalysis...}}
+        {"event":"done",          "data":{"group":"...", "timing":{...}}}
+
+    Why this matters: the parallel branches (Qwen / Haiku / Tesseract)
+    finish at different times. With the non-streaming /api/verify the
+    user stares at a spinner for 5s and then sees everything at once.
+    Here image_quality lands at ~200 ms, Qwen-owned fields (brand /
+    class / bottler / country) at ~3s, Haiku-owned fields (ABV / net /
+    warning text + casing) at ~3.5s, with the final 'done' verdict at
+    ~5s. Total wall is unchanged; perceived latency drops to under 3s
+    for the first useful UI render.
+    """
+    app_data = _parse_application_data(applicationData)
+    image_bytes = await image.read()
+
+    async def event_stream():
+        t0 = time.perf_counter()
+        try:
+            try:
+                measurement = _assess_or_none(image_bytes)
+            except ImageError as e:
+                yield _ndjson("error", {"detail": str(e)})
+                return
+
+            iq = ImageQuality(
+                score=measurement.score if measurement is not None else 1.0,
+                legible=measurement.legible if measurement is not None else True,
+                note=measurement.note if measurement is not None else None,
+            )
+            yield _ndjson("image_quality", iq.model_dump())
+
+            try:
+                extractor = get_extractor(brand_hint=app_data.brandName)
+            except InferenceError as e:
+                yield _ndjson("error", {"detail": f"inference setup failed: {e}"})
+                return
+
+            emitted_fields: set[str] = set()
+            last_warning_sig: Optional[str] = None
+            final_snapshot = None
+
+            try:
+                async for snapshot in extractor.extract_streaming(image_bytes, app_data.beverageType):
+                    if measurement is not None:
+                        snapshot.image_quality_score = measurement.score
+                        snapshot.image_legible = measurement.legible
+                        snapshot.image_quality_note = measurement.note
+                        snapshot.image_dpi = measurement.dpi
+
+                    partial = run_rules(snapshot, app_data)
+                    _attach_crops(image_bytes, snapshot, partial)
+
+                    for f in partial.fields:
+                        if f.fieldName in emitted_fields:
+                            continue
+                        # Only emit fields with real extracted data — fields
+                        # that ended up "likely / Could not extract" stay
+                        # pending until either (a) a later snapshot fills
+                        # them in or (b) the final-pass loop below.
+                        ef = snapshot.fields.get(f.fieldName)
+                        if ef is None or not (ef.value or "").strip():
+                            continue
+                        emitted_fields.add(f.fieldName)
+                        yield _ndjson("field", f.model_dump())
+
+                    gw = partial.governmentWarning
+                    sig = json.dumps(
+                        [gw.present, gw.verbatimMatch, gw.casingBoldOk, gw.detectedText, gw.fontSizeMm],
+                        default=str,
+                    )
+                    if sig != last_warning_sig and (gw.present or gw.detectedText):
+                        last_warning_sig = sig
+                        yield _ndjson("warning", gw.model_dump())
+
+                    final_snapshot = snapshot
+            except InferenceError as e:
+                yield _ndjson("error", {"detail": f"inference failed: {e}"})
+                return
+
+            if final_snapshot is None:
+                yield _ndjson("error", {"detail": "no extraction produced"})
+                return
+
+            # Final pass: run the rules engine over the complete extracted
+            # label and emit anything that wasn't covered by a partial
+            # (e.g. fields that the model never read → "likely / Could
+            # not extract" placeholders so the UI shows a verdict for
+            # every mandatory row).
+            final = run_rules(final_snapshot, app_data)
+            _attach_crops(image_bytes, final_snapshot, final)
+            for f in final.fields:
+                if f.fieldName not in emitted_fields:
+                    emitted_fields.add(f.fieldName)
+                    yield _ndjson("field", f.model_dump())
+
+            # Emit the final warning state if the streaming loop never
+            # produced one (e.g. extractor yielded only once with no
+            # warning data) OR if the final-pass rules engine produced
+            # something different (e.g. the type-size check resolved
+            # once Tesseract's bbox + DPI landed).
+            final_gw = final.governmentWarning
+            final_sig = json.dumps(
+                [final_gw.present, final_gw.verbatimMatch, final_gw.casingBoldOk, final_gw.detectedText, final_gw.fontSizeMm],
+                default=str,
+            )
+            if final_sig != last_warning_sig:
+                yield _ndjson("warning", final_gw.model_dump())
+
+            total_ms = int((time.perf_counter() - t0) * 1000)
+            timing = TimingInfo(
+                inferenceMode=settings.inference_mode,
+                extractorMs=total_ms,
+                rulesMs=0,
+                totalMs=total_ms,
+                extractorSource=final_snapshot.extractor_source,
+            )
+            yield _ndjson("done", {
+                "group": group_for(final),
+                "imageQuality": final.imageQuality.model_dump(),
+                "timing": timing.model_dump(),
+            })
+            logger.info(
+                "verify-stream brand=%s beverage=%s group=%s ms=%d",
+                app_data.brandName, app_data.beverageType, group_for(final), total_ms,
+            )
+        except Exception as e:
+            logger.exception("verify-stream pipeline error")
+            yield _ndjson("error", {"detail": f"unexpected error: {e}"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/verify-batch", response_model=list[BatchItemResult])

@@ -40,7 +40,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from typing import Any
+from typing import Any, AsyncIterator
 
 import httpx
 
@@ -64,11 +64,14 @@ _HAIKU_FIELDS = {"Alcohol content", "Net contents"}
 
 
 def _merge_label(
-    v2_label: ExtractedLabel,
+    v2_label: ExtractedLabel | None,
     haiku_label: ExtractedLabel | None,
     tesseract: dict | None,
 ) -> ExtractedLabel:
     """Combine the three observation sources into one ExtractedLabel.
+
+    Any subset of inputs may be None (streaming uses this to produce
+    intermediate snapshots as branches resolve at different times).
 
     Precedence (per field, by source):
       Brand / Class / Bottler / Country  ← v2 (trained for these)
@@ -83,9 +86,11 @@ def _merge_label(
     measurement. Haiku still owns the semantic warning checks (casing,
     contrast, separate-and-apart) — those need a vision-language model.
     """
-    fields: dict[str, ExtractedField] = {
-        name: ef for name, ef in v2_label.fields.items() if name in _V2_FIELDS
-    }
+    fields: dict[str, ExtractedField] = {}
+    if v2_label is not None:
+        for name, ef in v2_label.fields.items():
+            if name in _V2_FIELDS:
+                fields[name] = ef
     tesseract = tesseract or {}
 
     # ABV / Net contents — prefer Haiku semantic; fall back to Tesseract regex.
@@ -165,14 +170,15 @@ def _merge_label(
     logger.debug("merge: bbox source=%s, line_count=%s, dpi=%s",
                  bbox_source, body_line_count, image_dpi)
 
+    iq_src = v2_label or haiku_label
     return ExtractedLabel(
         fields=fields,
         warning_text=warning_text,
         warning_present=warning_present,
         warning_style=warning_style,
-        image_quality_score=v2_label.image_quality_score,
-        image_legible=v2_label.image_legible,
-        image_quality_note=v2_label.image_quality_note,
+        image_quality_score=iq_src.image_quality_score if iq_src else 1.0,
+        image_legible=iq_src.image_legible if iq_src else True,
+        image_quality_note=iq_src.image_quality_note if iq_src else None,
         image_dpi=image_dpi,
     )
 
@@ -362,3 +368,88 @@ class ModalRemoteExtractor(LabelExtractor):
                 "yes" if tesseract_result else "no",
             )
         return merged
+
+    async def extract_streaming(
+        self, image_bytes: bytes, beverage_type: BeverageType,
+    ) -> AsyncIterator[ExtractedLabel]:
+        """Yield snapshots of the merged ExtractedLabel as each branch
+        (Qwen / Haiku / Tesseract) resolves.
+
+        Branches run concurrently; asyncio.wait(FIRST_COMPLETED) returns
+        them in finish order. After each completion we re-merge what we
+        have and yield. The /api/verify/stream endpoint diffs successive
+        snapshots and emits NDJSON events only for the new content.
+        """
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+
+        v2_label: ExtractedLabel | None = None
+        haiku_label: ExtractedLabel | None = None
+        tesseract_result: dict | None = None
+        modal_failed = False
+        modal_error: Exception | None = None
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            task_source: dict[asyncio.Task, str] = {}
+            modal_task = asyncio.create_task(self._call_modal(client, image_b64, beverage_type))
+            task_source[modal_task] = "modal"
+            if self._haiku is not None:
+                haiku_task = asyncio.create_task(self._haiku.extract(image_bytes, beverage_type))
+                task_source[haiku_task] = "haiku"
+            if self.tesseract_url:
+                tess_task = asyncio.create_task(self._call_tesseract(client, image_b64))
+                task_source[tess_task] = "tesseract"
+
+            pending: set[asyncio.Task] = set(task_source.keys())
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for t in done:
+                    source = task_source[t]
+                    exc = t.exception()
+                    if exc is not None:
+                        if source == "modal":
+                            modal_failed = True
+                            modal_error = exc
+                            logger.warning("Modal failed: %s", exc)
+                        elif source == "haiku":
+                            logger.warning("Haiku side-channel failed: %s", exc)
+                        else:
+                            logger.warning("Tesseract side-channel failed: %s", exc)
+                        continue
+                    result = t.result()
+                    if source == "modal":
+                        if "raw_output" in result and "raw_v2" not in result:
+                            v2_label = _to_extracted_label(_try_parse_json(result.get("raw_output", "")))
+                        else:
+                            v2_label = _to_extracted_label(_try_parse_json(result.get("raw_v2", "")))
+                    elif source == "haiku":
+                        haiku_label = result
+                    elif source == "tesseract":
+                        tesseract_result = result if isinstance(result, dict) else None
+
+                # Yield a snapshot of what we have so far. If Modal failed
+                # but Haiku is in, we treat Haiku as the full source
+                # (mirrors the haiku-fallback path in extract()).
+                if modal_failed and haiku_label is not None:
+                    snapshot = haiku_label
+                    snapshot.extractor_source = "haiku-fallback"
+                    tess = tesseract_result or {}
+                    bbox_h = tess.get("warning_bbox_h_px")
+                    if bbox_h and snapshot.warning_style is not None:
+                        snapshot.warning_style.bbox = (0, 0, 0, int(bbox_h))
+                        snapshot.warning_style.body_line_count = 0
+                    dpi = tess.get("dpi")
+                    if dpi:
+                        snapshot.image_dpi = (int(dpi), int(dpi))
+                    yield snapshot
+                elif v2_label is None and haiku_label is None and tesseract_result is None:
+                    # Nothing has resolved successfully yet (e.g. Tesseract
+                    # failed first and is the only thing back). Wait for more.
+                    continue
+                else:
+                    snapshot = _merge_label(v2_label, haiku_label, tesseract_result)
+                    snapshot.extractor_source = "modal+haiku" if haiku_label is not None else "modal"
+                    yield snapshot
+
+        # Both Modal and Haiku failed → mirror extract()'s raise-the-root-cause behavior.
+        if modal_failed and haiku_label is None and modal_error is not None:
+            raise modal_error

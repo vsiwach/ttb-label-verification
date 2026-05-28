@@ -243,6 +243,48 @@ def test_verify_batch_empty_is_400(client):
     assert r.status_code in (400, 422)
 
 
+# ── streaming verify ─────────────────────────────────────────────────────────
+def _parse_ndjson(text: str) -> list[dict]:
+    return [json.loads(line) for line in text.strip().split("\n") if line.strip()]
+
+
+def test_verify_stream_emits_expected_event_sequence(client):
+    files = {"image": ("label.png", _png_bytes(), "image/png")}
+    data = {"applicationData": json.dumps(_OLD_TOM)}
+    with client.stream("POST", "/api/verify/stream", files=files, data=data) as r:
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("application/x-ndjson")
+        events = _parse_ndjson(r.read().decode("utf-8"))
+
+    types = [e["event"] for e in events]
+    # image_quality MUST be first — that's the perceived-latency win
+    assert types[0] == "image_quality"
+    # 'done' is last and carries the verdict bucket + timing
+    assert types[-1] == "done"
+    done_payload = events[-1]["data"]
+    assert done_payload["group"] in ("auto-pass", "needs-confirm", "needs-review")
+    assert "timing" in done_payload and done_payload["timing"]["totalMs"] >= 0
+
+    # Every mandatory field must arrive as a `field` event by the end
+    # (either streamed early or filled in by the final pass).
+    field_events = [e for e in events if e["event"] == "field"]
+    field_names = {e["data"]["fieldName"] for e in field_events}
+    # 5 mandatory fields for OLD TOM (spirits): brand / class / ABV / net / bottler
+    expected = {"Brand name", "Class & type", "Alcohol content", "Net contents", "Bottler name/address"}
+    assert expected.issubset(field_names), f"missing fields: {expected - field_names}"
+
+    # At least one `warning` event lands before 'done'.
+    assert "warning" in types
+    assert types.index("warning") < types.index("done")
+
+
+def test_verify_stream_bad_application_json_is_400(client):
+    files = {"image": ("label.png", _png_bytes(), "image/png")}
+    data = {"applicationData": "not json"}
+    r = client.post("/api/verify/stream", files=files, data=data)
+    assert r.status_code == 400
+
+
 # ── crops route ───────────────────────────────────────────────────────────────
 def test_crops_route_404_when_unknown(client):
     r = client.get("/crops/does-not-exist")

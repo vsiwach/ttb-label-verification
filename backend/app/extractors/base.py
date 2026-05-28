@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from ..models import BeverageType
 
@@ -76,3 +76,17 @@ class LabelExtractor(ABC):
     async def extract(self, image_bytes: bytes, beverage_type: BeverageType) -> ExtractedLabel:
         """Read the label image and report observations + confidence."""
         ...
+
+    async def extract_streaming(
+        self, image_bytes: bytes, beverage_type: BeverageType,
+    ) -> AsyncIterator[ExtractedLabel]:
+        """Yield successive snapshots of the running extraction.
+
+        Default impl: call extract() and yield once with the full result.
+        ModalRemoteExtractor overrides this to yield as each parallel
+        branch (Qwen / Haiku / Tesseract) resolves — that's what powers
+        the perceived-latency win on /api/verify/stream (Qwen fields
+        appear at ~3s while Haiku is still working).
+        """
+        result = await self.extract(image_bytes, beverage_type)
+        yield result
