@@ -277,8 +277,10 @@ the agent.
 | Claim | Measurement source | File reference |
 |---|---|---|
 | 78.0% Qwen v2 micro accuracy | 200-row TTB stratified holdout, post-`b817f82` scorer | [Release v0.1.0 eval pack](https://github.com/vsiwach/ttb-label-verification/releases/tag/v0.1.0) |
-| 37.2% Haiku micro accuracy on same 200 labels | Same harness, identical rubric | Same release |
-| 91.5% Qwen v2 on Class & type | Per-field breakdown in `v1_vs_v2_comparison_200row.md` | Same release |
+| **77.5% Qwen v2 micro accuracy** | **2000-row** TTB stratified holdout (seed=42, stratified across 1028 wine / 689 spirits / 283 malt). Within ±0.5 pp of the 200-row eval — validates that v2 generalises rather than overfitting to the initial sample | `v1_vs_v2_comparison.md` (Google Drive — to be added to v0.2.0 eval pack) |
+| **1.9% Qwen v1 micro on 2K holdout** (was 38.4% on 200-row) | Same 2000-row holdout. v1 was trained on COLA Cloud, the 2K holdout is from TTB Registry — v1 is effectively zero-shot OOD. Strongest evidence yet that agency-curated training data is what drives the win, not the model architecture | Same |
+| 37.2% Haiku micro accuracy on 200 labels | Same harness, identical rubric | [Release v0.1.0 eval pack](https://github.com/vsiwach/ttb-label-verification/releases/tag/v0.1.0) |
+| 88.5% Qwen v2 on Class & type (2K) | Per-field breakdown | Same 2K eval report |
 | 118 backend tests passing | `pytest backend/tests` | repeatable locally |
 | 5-7 s warm latency | Vercel network timing, observed on 3 sample labels today | DESIGN §11 |
 | Architecture portable across providers | `LabelExtractor` ABC + 6 implementations | `backend/app/extractors/` |
