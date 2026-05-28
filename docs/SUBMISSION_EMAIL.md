@@ -25,7 +25,7 @@ Four things to know:
 
 Every P0 in the brief is met; the [DESIGN doc §10](https://github.com/vsiwach/ttb-label-verification/blob/main/docs/DESIGN.md) walks the handful of deliberate divergences with rationale.
 
-**Start with the 13-slide deck — 10 minutes:** [`docs/TTB_Executive_Presentation.pptx`](https://github.com/vsiwach/ttb-label-verification/blob/main/docs/TTB_Executive_Presentation.pptx). Happy to demo live and walk any trade-off in detail.
+**Start with the 13-slide deck — 10 minutes:** [`docs/TTB_Executive_Presentation.pdf`](https://github.com/vsiwach/ttb-label-verification/blob/main/docs/TTB_Executive_Presentation.pdf). Happy to demo live and walk any trade-off in detail.
 
 Best,
 Vikram
