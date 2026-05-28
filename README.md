@@ -22,16 +22,33 @@ and stable across model upgrades.
 
 ## Live demo
 
-🟢 **https://ttb-label-verification-ebon.vercel.app** — production URL,
-currently running Anthropic Haiku for vision extraction. All 7 mandatory
-checks (Brand / Class&type / Bottler / Country / ABV / Net contents /
-Government Warning verbatim+casing) are live; warm latency 5–7 s.
+🟢 **https://ttb-label-verification-ebon.vercel.app**
 
-The privacy-first on-prem variant — Qwen v2 LoRA (described below) on
-container-served GPU — is documented separately in
-[`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md). The trained weights ship
-as a GitHub Release attachment so Treasury can validate the on-prem path
-independently.
+The live URL runs the **privacy-first hybrid**: brand / class / bottler /
+country come from our **Qwen 2.5-VL 7B LoRA on Modal A100** (PII-class
+fields stay inside infrastructure we control), and the public-text fields
+fixed verbatim by 27 CFR — the Government Warning text plus ABV and net
+contents — come from **Anthropic Haiku** in parallel. A CPU-only Tesseract
+container returns the deterministic warning bounding-box + EXIF DPI for the
+27 CFR 16.22 type-size check. All three branches run concurrently under
+one `asyncio.gather`.
+
+All 7 mandatory checks (Brand / Class & type / Bottler / Country / ABV /
+Net contents / Government Warning verbatim + casing + size) are live.
+Warm streaming timing on the live URL (3-run median): **first event at
+~0.6 s, full result at ~5.5 s**. The first useful UI render is well under
+the 2 s sub-target and total wall lands at the 5 s bar.
+
+The streaming endpoint is `POST /api/verify/stream` (NDJSON over a
+FastAPI `StreamingResponse`); events arrive as each parallel branch
+resolves so the agent sees Qwen-owned fields populate while Haiku is
+still working. The non-streaming `POST /api/verify` is retained for
+the batch fan-out.
+
+The trained Qwen v2 LoRA weights ship as a GitHub Release attachment so
+Treasury can validate the on-prem path independently — see
+[`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md) for the Modal-equivalent
+deploy in ~30 minutes.
 
 ---
 

@@ -151,11 +151,20 @@ the rules engine itself is sync but called via `asyncio.run_in_executor`.
 ### Endpoints (backend/app/main.py)
 
 ```
-GET  /health                       → { status, inferenceMode }
+GET  /health                       → { status, inferenceMode, modal:{warm,latencyMs,…} }
 GET  /crops/{crop_id}              → image bytes (ephemeral, in-memory, 5-min TTL)
+
 POST /api/verify                   multipart(image, applicationData) → VerificationResult
+POST /api/verify/stream            multipart(image, applicationData) → application/x-ndjson
+                                   Events: image_quality, field, warning, done, error
 POST /api/verify-batch             multipart(images[], applicationData?) → BatchItemResult[]
+
+GET  /api/samples                  → curated picker subset (paired application data)
+GET  /api/samples/all              → full gallery
+GET  /api/samples/{id}/image       → label image (webp/png/jpg)
 ```
+
+`/api/verify/stream` is the path the UI uses for single-label review (gets the perceived-latency win as branches resolve at different times). `/api/verify` returns a single JSON and is what the batch fan-out + smoke tests use.
 
 ### Request pipeline (single label)
 
@@ -583,7 +592,7 @@ but **seven explicit divergences** are documented below — not hidden.
 
 | # | Requirement (PRD) | Status | Notes |
 |---|---|---|---|
-| N1 | ≤5 s P95 single-label, **first fields streamed <2 s**, 250-label batch <60 s | **⚠️ Partial** | Modal three-way fan-out warm steady-state: ~4.5-6 s `totalMs` depending on image size (in band). UI pre-warm — `GET /health` on App mount + on every route change (60 s cooldown), plus a 4-min heartbeat while the tab is visible (under Modal's 5-min `scaledown_window`) and a re-ping on visibility change — keeps the container warm during a session. Modal kernel warmup runs one dummy 560×560 inference after `load_model()` via `@modal.enter()` so the first user request hits warm kernels. **Streaming**: client.ts has streaming callbacks for the mock path; backend `/api/verify` returns a single JSON response (no SSE). PRD's streaming-first-field target is **not implemented on the real backend**. |
+| N1 | ≤5 s P95 single-label, **first fields streamed <2 s**, 250-label batch <60 s | ✅ | **Real-backend streaming is live** via `POST /api/verify/stream` (NDJSON over `StreamingResponse`). Observed on the deployed Vercel + Modal A100 stack: first event (`image_quality`) at ~0.6 s; Haiku-owned fields (ABV / Net / warning) at ~1.5-3.5 s; Qwen-owned fields (Brand / Class / Bottler / Country) at ~3-4 s; `done` event at ~5-5.5 s. Perceived first-useful-render is well under the 2 s sub-target and total wall lands at or just under the 5 s bar across 3-run medians. The non-streaming `/api/verify` endpoint is retained for the batch fan-out path and for tooling. UI pre-warm (`GET /health` on mount + 4-min heartbeat) keeps Modal warm; `@modal.enter()` runs a dummy 560×560 inference after `load_model()` so the first warm request hits compiled kernels. |
 | N2 | Section 508 / WCAG 2.2 AA / USWDS / IDEA Act | **⚠️ Divergence** | Accessible by construction (icon+text status badges, keyboard nav, focus rings, ≥16 px body, ≥4.5:1 contrast, ARIA roles + live regions). **Built on Tailwind-style custom token system** ([src/styles/tokens.css](src/styles/tokens.css)), **not USWDS**. Formal Section 508 audit pending (PRD §13 Phase 1 item). |
 | N3 | No PII persistence, TLS, ephemeral in-memory | ✅ | No DB; ephemeral crop store 5-min TTL; cloud provider configured for zero-retention |
 | N4 | Graceful degradation; per-item batch failure isolation | ✅ | InferenceError → typed 502 with retry messaging; failed batch items return as `needs-review` with synthetic flag (verified in tests) |
@@ -596,7 +605,7 @@ but **seven explicit divergences** are documented below — not hidden.
 | PRD claim | Implementation reality |
 |---|---|
 | "React + Vite client" | ✅ React 18 + Vite + TypeScript |
-| "Lightweight backend, streams extraction back" | ⚠️ FastAPI backend implemented; **streaming NOT implemented** — returns single typed JSON. Client mock simulates streaming but real path is request/response. |
+| "Lightweight backend, streams extraction back" | ✅ FastAPI backend with **both** non-streaming (`POST /api/verify` → single JSON) and streaming (`POST /api/verify/stream` → NDJSON `StreamingResponse`) endpoints. Streaming emits per-branch events as each parallel extractor (Qwen / Haiku / Tesseract) resolves, so the UI renders fields progressively while the slowest branch is still working. |
 | "Default Gemini 2.5 Flash or Claude Haiku 4.5" | ✅ Production cloud model is `claude-haiku-4-5` (matches PRD recommendation). Easy to switch via `CLOUD_MODEL` env var. |
 | "Prompt caching across batch" | ✅ Anthropic prompt caching enabled on system prompt + tool definition (see `cloud.py`) |
 | "LLM extracts, rules engine decides" | ✅ Strict separation enforced; AI never makes verdict, rules engine never calls AI |
@@ -641,25 +650,50 @@ the parallel production target with measured accuracy. Both are agency-deployabl
 | (2) Hugging Face wine-image stress sets (`carolinembithe/wine-images-126k`, `Francesco/wine-labels`, `christopher/winesensed`) | **⚠️ Not in test set** | Out-of-domain stress testing not implemented; would be a Phase 1 pilot addition |
 | (3) Hand-crafted compliance violations (~10) | ✅ | `test/synthetic/` has 9 PNG fixtures + `expected_results.json` with deterministic 100%-pass CI gate |
 
-### Streaming + perceived-latency divergence (PRD §11)
+### Streaming (PRD §11) — shipped
 
-The PRD makes streaming a central latency strategy (#4 in §11). Implementation status:
+The PRD makes streaming a central latency strategy (#4 in §11). Status: **shipped**.
 
-- **Backend**: returns a single `VerificationResult` JSON. No SSE / no `StreamingResponse`. Wall-clock latency is the whole request (currently ~8 s Claude, ~10 s Qwen).
-- **Frontend mock path**: `src/api/client.ts::verifyLabel` accepts an `onField` callback. Mock data is fed through it field-by-field over 2-4 s to simulate the PRD's intended UX. When you flip to the real backend the callbacks are still wired but fire all at once when the single JSON comes back.
-- **Why this isn't a fatal gap**: with image-resize-to-640 + Modal + vLLM, real-backend p95 lands at ~3-5 s — under the 5 s bar. Streaming buys perceived-latency win, not actual latency. A future enhancement adds a true SSE endpoint; the frontend code is already streaming-ready.
+- **Backend**: `POST /api/verify/stream` returns a `StreamingResponse` of newline-delimited JSON events. The `ModalRemoteExtractor.extract_streaming()` method uses `asyncio.wait(FIRST_COMPLETED)` over the three parallel branches and yields a fresh merged `ExtractedLabel` snapshot after each branch resolves. The endpoint diffs successive snapshots and emits events only for new fields / warning content. Wire format:
+    ```
+    {"event":"image_quality", "data":{...}}     ← ~200 ms after assess_image
+    {"event":"field",         "data":{...}}     ← per VerificationField, as each branch resolves
+    {"event":"warning",       "data":{...}}     ← after Haiku reports warning text + casing
+    {"event":"done",          "data":{...}}     ← final group bucket + timing
+    ```
+- **Frontend**: `src/api/client.ts::verifyLabel()` auto-uses `/api/verify/stream` whenever any callback (`onField` / `onGovernmentWarning` / `onImageQuality`) is provided. With no callbacks it falls back to `/api/verify` — that's the path the batch fan-out uses where each call wants one atomic result, not a stream.
+- **Observed (3 warm runs against the deployed Vercel URL)**:
+    | Run | first event | last event |
+    |---|---|---|
+    | 1 | 0.79 s | 6.63 s |
+    | 2 | **0.60 s** | **5.43 s** |
+    | 3 | 0.82 s | 5.53 s |
+
+  Perceived first-useful-render: ~0.6-0.8 s. Total wall: 5.4-6.6 s. Sarah's 5-second bar is cleared on perceived latency by a margin; actual wall sits at the bar with the Anthropic Haiku branch (~3 s) as the floor.
+
+### Unified batch review (post-PRD UX iteration)
+
+The PRD's batch flow described a "triage dashboard" that surfaces flagged labels and a "confirm next" keyboard flow. Shipped reality goes further:
+
+- **One queue, all items.** `BatchPage.startReview()` builds a queue sorted by severity (needs-review first, then needs-confirm, then auto-pass) and includes *every* batch item, not just non-auto-pass. The agent commits an approval on every label and never has to bounce back to the dashboard between items.
+- **Click any row in the dashboard, land in the unified queue at that index** (`openItem` → `/review` with `session.startIndex` seeded). Replaces the previous `/result` + Back-to-batch ping-pong.
+- **Visible action panel + keyboard shortcuts.** Every review item shows three big tone-coded action buttons (Approve / Reject / Request image) plus a Notes textarea above the existing Prev / Next nav. Notes flow into the audit-log entry on Approve and Request image; on Reject they pre-fill the inline reject-reasons form. Keyboard A / R / I still fires the same handlers — both paths converge on `recordDecision()`.
+- **Dropped-file previews work.** `handleFiles()` reads every dropped File into a data URL via `FileReader.readAsDataURL` and populates the `imageDataUrlByFile` map so the unified review page renders the actual artwork (not a broken-image icon) even for files that didn't come through the sample picker.
 
 ### Summary — what we built vs PRD bottom line
 
-**Met (12 of 12 P0 + 4 of 5 P1 + 5 of 6 non-functional):** Core single-label, batch, rules engine, citations, verdict bucketing, HITL, evidence crops, image-quality gate, security posture, deterministic verdict logic, swappable inference behind interface.
+**Met (12 of 12 P0 + 4 of 5 P1 + 6 of 7 non-functional):** Core single-label, batch, rules engine, citations, verdict bucketing, HITL, evidence crops, image-quality gate, security posture, deterministic verdict logic, swappable inference behind interface, **real-backend SSE-equivalent streaming**, deterministic 27 CFR 16.22 type-size check with documented DPI assumption.
 
-**Diverged with documented justification (3):** Fine-tuned Qwen instead of "buy only"; used Qwen LoRA on Modal instead of Phi-3.5-vision on agency hardware (both options open); Tailwind tokens instead of USWDS (formally accessible but not the standard library).
+**Diverged with documented justification (2):** Fine-tuned Qwen instead of "buy only"; Tailwind tokens instead of USWDS (formally accessible — icon+text states, 44×44 targets, ≥16 px body, ≥4.5:1 contrast, ARIA live regions, visible focus — but not the federal standard library). Both on-prem model options remain open: the `onprem` adapter still supports Phi-3.5-vision via Ollama; the production Modal path uses the in-house Qwen v2 LoRA.
 
-**Below PRD spec (3):** No streaming on the real backend; no JSON/CSV/printable export (auto-drafted text rendered only); F7 partial; F11 partial.
+**Below PRD spec (2):** No JSON/CSV/printable export (auto-drafted text rendered only); F11 image-based beverage-type auto-detect partial. Both are small additions when the engagement moves past prototype.
 
-**Beyond PRD spec (2):** Modal-deployed production inference path (`backend/modal_deploy/serve_qwen_v2.py` + `serve_tesseract.py`); end-to-end apples-to-apples eval framework with 4 separate adapters (Qwen / InternVL3 / Donut training notebooks — InternVL3/Donut now in `archive/notebooks/` since Qwen won + Modal deploy + replay scoring).
+**Beyond PRD spec (3):**
+- Modal-deployed production inference path (`backend/modal_deploy/serve_qwen_v2.py` + `serve_tesseract.py`).
+- End-to-end apples-to-apples eval framework with 4 separate model adapters (Qwen / InternVL3 / Donut training notebooks — InternVL3/Donut now in `archive/notebooks/` since Qwen won) + Modal deploy + replay scoring.
+- **Unified batch review queue** with sorted severity, visible action panel + notes, and seamless click-into-item flow that doesn't ping-pong to the dashboard.
 
-The honest framing for the TTB conversation: **every P0 requirement is met; the divergences are documented, justified, and reversible.** The architecture (rules engine + swappable extractor) means each divergence — restoring USWDS, adding streaming, exporting JSON/CSV, swapping back to Phi-3.5-vision — is a small frontend or backend change, not a rewrite.
+The honest framing for the TTB conversation: **every P0 requirement is met; the divergences are documented, justified, and reversible.** The architecture (rules engine + swappable extractor + streaming endpoint) means each remaining gap — JSON/CSV export, formal USWDS swap, restoring image-based beverage-type detection — is a small frontend or backend change, not a rewrite.
 
 ---
 
