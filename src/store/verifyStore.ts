@@ -26,6 +26,11 @@ export interface ReviewSession {
   queue: BatchItemResult[];
   shared: ApplicationData | null;
   startedAt: number;
+  /** Initial item index to seed ReviewPage on mount. Lets the dashboard
+   *  drop the user into the queue at a specific item (e.g. when they
+   *  click a single row) — Next/Prev still span the whole batch so
+   *  they never get bounced back to the dashboard between items. */
+  startIndex?: number;
   /** Per-item real application data, keyed by item.fileName. Populated by
    *  the batch sample picker so the result/review pages see the actual TTB
    *  Form 5100.31 fields, NOT synthetic placeholder data. */

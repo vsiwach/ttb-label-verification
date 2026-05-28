@@ -56,7 +56,11 @@ export default function ReviewPage() {
 
   const [confirmations, setConfirmations] = useState<Record<string, boolean>>({});
   const [decisions, setDecisions]         = useState<Record<string, DecisionEntry>>({});
-  const [index, setIndex]                 = useState(0);
+  // Seed from session.startIndex so clicking a specific row in the batch
+  // dashboard drops the user directly into that item's review, with
+  // Next/Prev spanning the whole batch. Defaults to 0 for the "Review
+  // all" button.
+  const [index, setIndex]                 = useState(session?.startIndex ?? 0);
   const [showHelp, setShowHelp]           = useState(false);
   const [rejectingId, setRejectingId]     = useState<string | null>(null);
   const [liveMsg, setLiveMsg]             = useState('');

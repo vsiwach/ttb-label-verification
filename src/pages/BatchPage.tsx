@@ -18,6 +18,19 @@ import { preWarmModal } from '../utils/preWarm';
 type GroupKey = BatchItemResult['group'];
 type FilterKey = 'all' | 'review' | 'confirm' | 'pass';
 
+/** Severity order for the unified review queue — the agent does the
+ *  hardest work first while attention is fresh, then breezes through
+ *  the auto-passes with a single keystroke each. */
+const SEVERITY: Record<GroupKey, number> = {
+  'needs-review':  0,
+  'needs-confirm': 1,
+  'auto-pass':     2,
+};
+
+function sortBySeverity(items: BatchItemResult[]): BatchItemResult[] {
+  return [...items].sort((a, b) => SEVERITY[a.group] - SEVERITY[b.group]);
+}
+
 const GROUP_META: Record<GroupKey, { label: string; tone: 'flag' | 'likely' | 'match'; Icon: typeof IconCheck; desc: string }> = {
   'needs-review':  { label: 'Needs review',  tone: 'flag',   Icon: IconFlag,  desc: 'Has a flagged field or a Government Warning failure.' },
   'needs-confirm': { label: 'Needs confirm', tone: 'likely', Icon: IconWarn,  desc: 'Has at least one likely-match field — a one-click Confirm resolves it.' },
@@ -193,69 +206,39 @@ export default function BatchPage() {
     }
   }
 
-  function openItem(item: BatchItemResult) {
-    verifyStore.reset();
-    // Use the picker-supplied image data URL if available; otherwise fall
-    // back to the (often empty) thumbnailUrl the backend returned. No
-    // synthetic placeholders.
-    const dataUrl = imageDataUrlByFile.current.get(item.fileName) || item.thumbnailUrl || '';
-    const image: UploadedImage = {
-      blob: null,
-      dataUrl,
-      fileName: item.fileName,
-      width: 0, height: 0,
-      originalWidth: 0, originalHeight: 0,
-      originalSize: 0, optimizedSize: 0,
-    };
-    // Per-item REAL application data from the picker. If the user dropped
-    // their own file (no picker entry), use empty ApplicationData — the
-    // engine will then surface "not declared on application" notes per
-    // field, which is honest, instead of comparing the label to some
-    // synthetic placeholder.
-    const perItemAppData =
-      shared
-      ?? appDataByFile.current.get(item.fileName)
-      ?? emptyAppData();
-    // The batch already produced a full VerificationResult for this item;
-    // hand it straight to /result so it renders immediately without firing
-    // a second verify call. The previous version reset everything and
-    // let /result re-verify, which failed with 422 because the batch's
-    // UploadedImage carries blob=null (it never owned the Blob, only a
-    // data URL for thumbnail rendering).
-    verifyStore.setState({
-      image,
-      applicationData: perItemAppData,
-      status: 'done',
-      result: {
-        fields: item.result.fields,
-        governmentWarning: item.result.governmentWarning,
-        imageQuality: item.result.imageQuality,
-        timing: item.result.timing ?? null,
-      },
-      error: null,
-    });
-    // Hand a fromBatch hint to /result so it can render a visible
-    // "Back to batch" link — the only other way back is the browser
-    // back button which isn't discoverable.
-    navigate('/result', { state: { fromBatch: true } });
-  }
-
-  function startReview() {
-    const queue = items.filter(it => it.group !== 'auto-pass');
-    // Snapshot the per-file maps into plain objects so the review session
-    // survives across route navigations (refs reset with the page).
+  /** Build the unified review queue + per-file snapshots. Includes ALL
+   *  items (not just non-auto-pass) so the agent commits an approval
+   *  on every label without ping-ponging back to the dashboard. */
+  function buildReviewSession(startIndex: number) {
+    const queue = sortBySeverity(items);
     const appDataByFileSnapshot: Record<string, ApplicationData> = {};
     const imageDataUrlByFileSnapshot: Record<string, string> = {};
     appDataByFile.current.forEach((v, k) => { appDataByFileSnapshot[k] = v; });
     imageDataUrlByFile.current.forEach((v, k) => { imageDataUrlByFileSnapshot[k] = v; });
     verifyStore.setState({
       reviewSession: {
-        queue, shared, startedAt: Date.now(),
+        queue,
+        shared,
+        startedAt: Date.now(),
+        startIndex: Math.max(0, Math.min(startIndex, queue.length - 1)),
         appDataByFile: appDataByFileSnapshot,
         imageDataUrlByFile: imageDataUrlByFileSnapshot,
       },
     });
     navigate('/review');
+  }
+
+  function openItem(item: BatchItemResult) {
+    // Drop the user into the unified review queue at this specific item,
+    // not into a one-off /result page. Next/Prev then span the whole
+    // batch — no "Back to dashboard" between items.
+    const queue = sortBySeverity(items);
+    const startIndex = queue.findIndex(q => q.id === item.id);
+    buildReviewSession(startIndex >= 0 ? startIndex : 0);
+  }
+
+  function startReview() {
+    buildReviewSession(0);
   }
 
   return (
@@ -416,9 +399,9 @@ function Dashboard({ phase, totalFiles, items, filter, setFilter, autoPassOpen, 
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {!processing && needsAction > 0 && (
+            {!processing && totalFiles > 0 && (
               <Button size="lg" icon={IconCheck} onClick={onStartReview}>
-                Start review ({needsAction})
+                Review all ({totalFiles})
               </Button>
             )}
             <Button variant="secondary" onClick={onReset}>New batch</Button>
