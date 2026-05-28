@@ -64,6 +64,12 @@ export default function ReviewPage() {
   const [showHelp, setShowHelp]           = useState(false);
   const [rejectingId, setRejectingId]     = useState<string | null>(null);
   const [liveMsg, setLiveMsg]             = useState('');
+  // Per-item free-text notes the agent can type into the visible action
+  // panel before clicking Approve / Request image. Flows into the
+  // decision log entry. Reject reuses InlineRejectForm's own freeText
+  // (pre-filled from this when the form opens). Reset on item change so
+  // notes don't leak between labels.
+  const [notes, setNotes]                 = useState('');
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   if (!session || session.queue.length === 0) {
@@ -107,10 +113,12 @@ export default function ReviewPage() {
 
   const advance = useCallback(() => {
     setRejectingId(null);
+    setNotes('');
     setIndex(i => Math.min(i + 1, total));
   }, [total]);
   const previous = useCallback(() => {
     setRejectingId(null);
+    setNotes('');
     setIndex(i => Math.max(0, i - 1));
   }, []);
   const exit = useCallback(() => navigate('/batch'), [navigate]);
@@ -144,8 +152,8 @@ export default function ReviewPage() {
     advance();
   };
 
-  const quickApprove = () => recordDecision('approve');
-  const quickRequestImage = () => recordDecision('requestImage');
+  const quickApprove = () => recordDecision('approve', { freeText: notes });
+  const quickRequestImage = () => recordDecision('requestImage', { freeText: notes });
   const quickConfirmAll = () => {
     if (!item) return;
     setConfirmations(prev => ({ ...prev, [item.id]: true }));
@@ -310,9 +318,26 @@ export default function ReviewPage() {
         </section>
       </div>
 
+      {!statusForItem && rejectingId !== item.id && (
+        <ActionPanel
+          liveCounts={liveCounts}
+          gwFailing={!!liveResult.governmentWarning &&
+            (!liveResult.governmentWarning.present
+             || !liveResult.governmentWarning.verbatimMatch
+             || !liveResult.governmentWarning.casingBoldOk)}
+          imageBad={!!liveResult.imageQuality && !liveResult.imageQuality.legible}
+          notes={notes}
+          setNotes={setNotes}
+          onApprove={quickApprove}
+          onReject={openReject}
+          onRequestImage={quickRequestImage}
+        />
+      )}
+
       {rejectingId === item.id && (
         <InlineRejectForm
           result={liveResult}
+          initialNotes={notes}
           onCancel={() => setRejectingId(null)}
           onConfirm={(selectedReasons, freeText) => recordDecision('reject', { selectedReasons, freeText })}
         />
@@ -440,20 +465,166 @@ function KeyboardLegend({ onApprove, onReject, onRequest, onConfirmAll, onPrev, 
   );
 }
 
+interface ActionPanelProps {
+  liveCounts: { match: number; likely: number; flag: number };
+  gwFailing: boolean;
+  imageBad: boolean;
+  notes: string;
+  setNotes: (v: string) => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onRequestImage: () => void;
+}
+
+/** The visible decision panel at the bottom of each review item. Mirrors
+ *  the single-label /result page's ActionsGrid so non-keyboard users
+ *  have an obvious way to commit a verdict with comments. Keyboard
+ *  shortcuts (A / R / I) call the same handlers — both paths converge
+ *  on recordDecision() and the notes textarea below flows into the
+ *  decision log entry. */
+function ActionPanel({
+  liveCounts, gwFailing, imageBad,
+  notes, setNotes,
+  onApprove, onReject, onRequestImage,
+}: ActionPanelProps) {
+  const issues = liveCounts.flag + (gwFailing ? 1 : 0);
+  const blocked = issues > 0;
+  const approveLabel = blocked ? 'Approve with override' : 'Approve label';
+  const approveTitle = blocked
+    ? `Resolve ${issues} issue${issues === 1 ? '' : 's'} first, or add an override note below and approve anyway.`
+    : 'All compliance checks pass. Add any final notes below if you like.';
+
+  return (
+    <section
+      aria-labelledby="review-actions-h"
+      className="card"
+      style={{
+        marginTop: 24, padding: 20,
+        border: '1px solid var(--color-line)',
+        background: 'var(--color-surface, #fff)',
+      }}
+    >
+      <header style={{ marginBottom: 12 }}>
+        <h3 id="review-actions-h" style={{ margin: 0, fontSize: 'var(--fs-20)' }}>Record your decision</h3>
+        <p style={{ margin: '4px 0 0', color: 'var(--color-ink-muted)', fontSize: 'var(--fs-14)' }}>
+          Use the buttons below, or the keyboard shortcuts at the top of the page.
+          Notes you type here flow into the audit log.
+        </p>
+      </header>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <ActionButton
+          tone="match"
+          title="Approve"
+          subtitle={approveTitle}
+          buttonLabel={approveLabel}
+          shortcut="A"
+          onClick={onApprove}
+        />
+        <ActionButton
+          tone="flag"
+          title="Reject (with reasons)"
+          subtitle={
+            liveCounts.flag > 0 || gwFailing
+              ? `${liveCounts.flag} flagged field${liveCounts.flag === 1 ? '' : 's'}${gwFailing ? ' + Government Warning issue' : ''}. Reasons are pre-checked in the form.`
+              : 'Opens the reject form. Pick reasons or add a note, then confirm.'
+          }
+          buttonLabel="Open reject form"
+          shortcut="R"
+          onClick={onReject}
+        />
+        <ActionButton
+          tone="likely"
+          title="Request a better image"
+          subtitle={imageBad
+            ? 'Image quality is below threshold — OCR may have missed details.'
+            : 'Optional. Use when any region is illegible.'}
+          buttonLabel="Request higher-res image"
+          shortcut="I"
+          onClick={onRequestImage}
+        />
+      </div>
+
+      <label htmlFor="review-notes" className="field__label">
+        Notes (optional)
+      </label>
+      <textarea
+        id="review-notes"
+        className="field__input"
+        rows={3}
+        placeholder="Anything to add to the audit log — override rationale, applicant message, internal context…"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        style={{ maxWidth: '100%', fontFamily: 'var(--font-sans)', lineHeight: 1.5 }}
+      />
+      <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--color-ink-subtle, var(--color-ink-muted))' }}>
+        Notes are saved with the decision when you Approve or Request image.
+        If you Reject, this text pre-fills the reject form's notes field.
+      </p>
+    </section>
+  );
+}
+
+interface ActionButtonProps {
+  tone: 'match' | 'flag' | 'likely';
+  title: string;
+  subtitle: string;
+  buttonLabel: string;
+  shortcut: string;
+  onClick: () => void;
+}
+
+function ActionButton({ tone, title, subtitle, buttonLabel, shortcut, onClick }: ActionButtonProps) {
+  const variant: 'primary' | 'danger' | 'secondary' =
+    tone === 'match' ? 'primary' : tone === 'flag' ? 'danger' : 'secondary';
+  return (
+    <div
+      style={{
+        padding: 16,
+        borderRadius: 8,
+        border: `1px solid var(--status-${tone}-fg, var(--color-line))`,
+        background: `var(--status-${tone}-bg, var(--color-bg-alt))`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+        <strong style={{ fontSize: 'var(--fs-16)' }}>{title}</strong>
+        <span className="kbd" aria-hidden="true">{shortcut}</span>
+      </div>
+      <p style={{ margin: 0, fontSize: 'var(--fs-14)', color: 'var(--color-ink-muted)', minHeight: 40 }}>
+        {subtitle}
+      </p>
+      <Button variant={variant} onClick={onClick} style={{ width: '100%' }}>
+        {buttonLabel}
+      </Button>
+    </div>
+  );
+}
+
 interface InlineRejectFormProps {
   result: VerificationResult;
+  initialNotes?: string;
   onCancel: () => void;
   onConfirm: (reasons: SuggestedReason[], freeText: string) => void;
 }
 
-function InlineRejectForm({ result, onCancel, onConfirm }: InlineRejectFormProps) {
+function InlineRejectForm({ result, initialNotes, onCancel, onConfirm }: InlineRejectFormProps) {
   const suggested = useMemo(() => deriveReasons(result), [result]);
   const [reasons, setReasons] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const r of suggested) init[r.id] = r.defaultChecked;
     return init;
   });
-  const [freeText, setFreeText] = useState('');
+  const [freeText, setFreeText] = useState(initialNotes ?? '');
   const formRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
